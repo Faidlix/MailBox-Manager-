@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>MailBox Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#inbox" aria-label="MailBox Manager 首頁"><span class="brand-mark">M</span><span>MailBox<br>Manager</span></a>
+      <nav>
+        <a href="#inbox" data-route="inbox">收件匣 <span id="unread-badge" class="badge">0</span></a>
+        <a href="#compose" data-route="compose">撰寫郵件</a>
+        <a href="#accounts" data-route="accounts">信箱帳號</a>
+        <a href="#rules" data-route="rules">分類規則</a>
+        <a href="#help" data-route="help">說明與免責聲明</a>
+      </nav>
+      <div class="privacy-note"><span>本機優先</span><small>郵件索引與登入憑證留在這台電腦</small></div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div><p class="eyebrow">PERSONAL COMMUNICATION HUB</p><h1 id="page-title">統一收件匣</h1></div>
+        <button id="sync-button" class="primary">同步全部</button>
+      </header>
+      <div id="notice" role="status" aria-live="polite"></div>
+      <section id="view" tabindex="-1"></section>
+    </main>
+  </div>
+  <template id="inbox-template">
+    <div class="toolbar card">
+      <label class="search"><span>搜尋</span><input id="search-input" placeholder="主旨、寄件者或內容摘要"></label>
+      <select id="account-filter" aria-label="依帳號篩選"><option value="">所有帳號</option></select>
+      <select id="read-filter" aria-label="依閱讀狀態篩選"><option value="">全部郵件</option><option value="true">只看未讀</option></select>
+    </div>
+    <div class="mail-layout">
+      <div id="message-list" class="message-list card"></div>
+      <article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article>
+    </div>
+  </template>
+  <template id="compose-template">
+    <form id="compose-form" class="form-card card narrow">
+      <label>寄件帳號<select name="accountId" required></select></label>
+      <label>收件者<input name="to" type="email" multiple placeholder="name@example.com" required></label>
+      <label>副本<input name="cc" type="email" multiple placeholder="選填，以逗號分隔"></label>
+      <label>主旨<input name="subject" required></label>
+      <label>內容<textarea name="text" rows="13" required></textarea></label>
+      <div class="form-actions"><button type="submit" class="primary">寄出郵件</button></div>
+    </form>
+  </template>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
