@@ -4,9 +4,54 @@ const noticeRoot = document.querySelector('#notice');
 const syncButton = document.querySelector('#sync-button');
 let accounts = [];
 let messages = [];
+const demoMode = location.protocol === 'https:' || new URLSearchParams(location.search).has('demo');
+const demoAccounts = [
+  { id: 1, provider: 'gmail', email: 'personal.demo@gmail.com', display_name: '個人信箱', last_synced_at: new Date().toISOString() },
+  { id: 2, provider: 'imap', email: 'work.demo@yahoo.com', display_name: '工作信箱', last_synced_at: new Date(Date.now() - 18 * 60_000).toISOString() },
+];
+let demoMessages = [
+  { id: 1, account_id: 2, remote_id: 'demo-1', thread_id: 'demo-thread-1', sender_name: '星河銀行', sender_email: 'notice@bank.example', recipients: ['work.demo@yahoo.com'], subject: '信用卡自動扣款成功通知', snippet: '本期信用卡帳款已完成自動扣款，感謝您的使用。', text_body: '您好：\n\n本期信用卡帳款 NT$12,350 已於今日完成自動扣款。\n\n此為介面展示郵件，不含真實帳務資料。', html_body: '', received_at: new Date(Date.now() - 22 * 60_000).toISOString(), is_read: 0, is_starred: 1, has_attachments: 0, category: '帳單', account_email: 'work.demo@yahoo.com', provider: 'imap', labels: [] },
+  { id: 2, account_id: 1, remote_id: 'demo-2', thread_id: 'demo-thread-2', sender_name: 'Steam', sender_email: 'noreply@steampowered.com', recipients: ['personal.demo@gmail.com'], subject: 'Wishlist item is on sale', snippet: '您願望清單中的遊戲正在特價，活動本週結束。', text_body: '願望清單中的遊戲現在享有 60% 折扣。\n\n此為介面展示郵件。', html_body: '', received_at: new Date(Date.now() - 3 * 3600_000).toISOString(), is_read: 0, is_starred: 0, has_attachments: 0, category: '遊戲', account_email: 'personal.demo@gmail.com', provider: 'gmail', labels: [] },
+  { id: 3, account_id: 2, remote_id: 'demo-3', thread_id: 'demo-thread-3', sender_name: '專案小組', sender_email: 'team@company.example', recipients: ['work.demo@yahoo.com'], subject: 'Re: 下週專案會議', snippet: '會議時間調整為星期二下午兩點，附件為更新後的議程。', text_body: '大家好，\n\n會議時間調整為星期二下午兩點，請參考更新後的議程。\n\n此為介面展示郵件。', html_body: '', received_at: new Date(Date.now() - 26 * 3600_000).toISOString(), is_read: 1, is_starred: 0, has_attachments: 1, category: '工作', account_email: 'work.demo@yahoo.com', provider: 'imap', labels: [] },
+];
+let demoRules = [
+  { id: 1, name: '銀行帳務', field: 'sender', operator: 'contains', value: 'bank', category: '帳單', enabled: 1 },
+  { id: 2, name: '遊戲通知', field: 'sender', operator: 'contains', value: 'Steam', category: '遊戲', enabled: 1 },
+];
 
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+const demoApi = async (url, options = {}) => {
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  const method = options.method || 'GET';
+  const parsed = new URL(url, location.origin);
+  if (url === '/api/accounts') return structuredClone(demoAccounts);
+  if (parsed.pathname === '/api/messages' && method === 'GET') {
+    let result = [...demoMessages];
+    const search = parsed.searchParams.get('search')?.toLowerCase();
+    const accountId = parsed.searchParams.get('accountId');
+    if (search) result = result.filter((item) => `${item.subject} ${item.sender_name} ${item.sender_email} ${item.snippet}`.toLowerCase().includes(search));
+    if (accountId) result = result.filter((item) => String(item.account_id) === accountId);
+    if (parsed.searchParams.get('unread') === 'true') result = result.filter((item) => !item.is_read);
+    return structuredClone(result);
+  }
+  const messageMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)$/);
+  if (messageMatch && method === 'GET') return structuredClone(demoMessages.find((item) => item.id === Number(messageMatch[1])));
+  const readMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/read$/);
+  if (readMatch) { const item = demoMessages.find((message) => message.id === Number(readMatch[1])); if (item) item.is_read = JSON.parse(options.body).read ? 1 : 0; return { ok: true }; }
+  if (messageMatch && method === 'DELETE') { demoMessages = demoMessages.filter((item) => item.id !== Number(messageMatch[1])); return null; }
+  if (url === '/api/sync') return demoAccounts.map((account) => ({ accountId: account.id, count: demoMessages.filter((message) => message.account_id === account.id).length, ok: true }));
+  if (/^\/api\/accounts\/\d+\/sync$/.test(parsed.pathname)) return { count: demoMessages.length };
+  if (url === '/api/send') return { ok: true };
+  if (url === '/api/rules' && method === 'GET') return structuredClone(demoRules);
+  if (url === '/api/rules' && method === 'POST') { const rule = { id: Date.now(), ...JSON.parse(options.body), enabled: 1 }; demoRules.unshift(rule); return { id: rule.id }; }
+  const ruleMatch = parsed.pathname.match(/^\/api\/rules\/(\d+)$/);
+  if (ruleMatch && method === 'DELETE') { demoRules = demoRules.filter((rule) => rule.id !== Number(ruleMatch[1])); return null; }
+  if (url.includes('/auth-url') || url === '/api/accounts/imap') throw new Error('測試站不會連接真實帳號；正式版需在安全後端設定 OAuth 或應用程式密碼。');
+  if (/^\/api\/accounts\/\d+$/.test(parsed.pathname) && method === 'DELETE') throw new Error('示範帳號保留供介面測試。');
+  return { ok: true };
+};
 const api = async (url, options = {}) => {
+  if (demoMode) return demoApi(url, options);
   const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
   if (!response.ok) {
     const result = await response.json().catch(() => ({}));
@@ -15,6 +60,8 @@ const api = async (url, options = {}) => {
   if (response.status === 204) return null;
   return response.json();
 };
+
+if (demoMode) document.querySelector('#demo-label').hidden = false;
 
 function showNotice(message, error = false) {
   noticeRoot.innerHTML = `<div class="notice ${error ? 'error' : ''}">${escapeHtml(message)}</div>`;
