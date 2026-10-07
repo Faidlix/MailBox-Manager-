@@ -4,15 +4,19 @@ const noticeRoot = document.querySelector('#notice');
 const syncButton = document.querySelector('#sync-button');
 let accounts = [];
 let messages = [];
+const inboxFilters = { accountId: '', category: '', state: 'all' };
 const demoMode = location.protocol === 'https:' || new URLSearchParams(location.search).has('demo');
 const demoAccounts = [
   { id: 1, provider: 'gmail', email: 'personal.demo@gmail.com', display_name: '個人信箱', last_synced_at: new Date().toISOString() },
   { id: 2, provider: 'imap', email: 'work.demo@yahoo.com', display_name: '工作信箱', last_synced_at: new Date(Date.now() - 18 * 60_000).toISOString() },
 ];
 let demoMessages = [
-  { id: 1, account_id: 2, remote_id: 'demo-1', thread_id: 'demo-thread-1', sender_name: '星河銀行', sender_email: 'notice@bank.example', recipients: ['work.demo@yahoo.com'], subject: '信用卡自動扣款成功通知', snippet: '本期信用卡帳款已完成自動扣款，感謝您的使用。', text_body: '您好：\n\n本期信用卡帳款 NT$12,350 已於今日完成自動扣款。\n\n此為介面展示郵件，不含真實帳務資料。', html_body: '', received_at: new Date(Date.now() - 22 * 60_000).toISOString(), is_read: 0, is_starred: 1, has_attachments: 0, category: '帳單', account_email: 'work.demo@yahoo.com', provider: 'imap', labels: [] },
-  { id: 2, account_id: 1, remote_id: 'demo-2', thread_id: 'demo-thread-2', sender_name: 'Steam', sender_email: 'noreply@steampowered.com', recipients: ['personal.demo@gmail.com'], subject: 'Wishlist item is on sale', snippet: '您願望清單中的遊戲正在特價，活動本週結束。', text_body: '願望清單中的遊戲現在享有 60% 折扣。\n\n此為介面展示郵件。', html_body: '', received_at: new Date(Date.now() - 3 * 3600_000).toISOString(), is_read: 0, is_starred: 0, has_attachments: 0, category: '遊戲', account_email: 'personal.demo@gmail.com', provider: 'gmail', labels: [] },
-  { id: 3, account_id: 2, remote_id: 'demo-3', thread_id: 'demo-thread-3', sender_name: '專案小組', sender_email: 'team@company.example', recipients: ['work.demo@yahoo.com'], subject: 'Re: 下週專案會議', snippet: '會議時間調整為星期二下午兩點，附件為更新後的議程。', text_body: '大家好，\n\n會議時間調整為星期二下午兩點，請參考更新後的議程。\n\n此為介面展示郵件。', html_body: '', received_at: new Date(Date.now() - 26 * 3600_000).toISOString(), is_read: 1, is_starred: 0, has_attachments: 1, category: '工作', account_email: 'work.demo@yahoo.com', provider: 'imap', labels: [] },
+  { id: 1, account_id: 2, remote_id: 'demo-1', thread_id: 'demo-thread-1', folder: 'INBOX', sender_name: '星河銀行', sender_email: 'notice@bank.example', recipients: ['work.demo@yahoo.com'], subject: '信用卡自動扣款成功通知', snippet: '本期信用卡帳款已完成自動扣款，感謝您的使用。', text_body: '您好：\n\n本期信用卡帳款 NT$12,350 已於今日完成自動扣款。\n\n此為介面展示郵件，不含真實帳務資料。', html_body: '', received_at: new Date(Date.now() - 22 * 60_000).toISOString(), is_read: 0, is_starred: 1, has_attachments: 0, category: '銀行', account_email: 'work.demo@yahoo.com', provider: 'imap', labels: [] },
+  { id: 2, account_id: 1, remote_id: 'demo-2', thread_id: 'demo-thread-2', folder: 'INBOX', sender_name: 'Steam', sender_email: 'noreply@steampowered.com', recipients: ['personal.demo@gmail.com'], subject: 'Wishlist item is on sale', snippet: '您願望清單中的遊戲正在特價，活動本週結束。', text_body: '願望清單中的遊戲現在享有 60% 折扣。\n\n此為介面展示郵件。', html_body: '', received_at: new Date(Date.now() - 3 * 3600_000).toISOString(), is_read: 0, is_starred: 0, has_attachments: 0, category: 'Steam', account_email: 'personal.demo@gmail.com', provider: 'gmail', labels: [] },
+  { id: 3, account_id: 2, remote_id: 'demo-3', thread_id: 'demo-thread-3', folder: 'INBOX', sender_name: '專案小組', sender_email: 'team@company.example', recipients: ['work.demo@yahoo.com'], subject: 'Re: 下週專案會議', snippet: '會議時間調整為星期二下午兩點，附件為更新後的議程。', text_body: '大家好，\n\n會議時間調整為星期二下午兩點，請參考更新後的議程。\n\n此為介面展示郵件。', html_body: '', received_at: new Date(Date.now() - 26 * 3600_000).toISOString(), is_read: 1, is_starred: 0, has_attachments: 1, category: '專案', account_email: 'work.demo@yahoo.com', provider: 'imap', labels: [] },
+  { id: 4, account_id: 1, remote_id: 'demo-4', thread_id: 'demo-thread-4', folder: 'ARCHIVE', sender_name: 'GitHub', sender_email: 'notifications@github.com', recipients: ['personal.demo@gmail.com'], subject: 'Repository activity summary', snippet: '這封郵件已封存，可從封存篩選中查看。', text_body: '本週專案活動摘要。\n\n此為介面展示郵件。', html_body: '', received_at: new Date(Date.now() - 42 * 3600_000).toISOString(), is_read: 1, is_starred: 0, has_attachments: 0, category: '專案', account_email: 'personal.demo@gmail.com', provider: 'gmail', labels: [] },
+  { id: 5, account_id: 1, remote_id: 'demo-5', thread_id: 'demo-thread-5', folder: 'SPAM', sender_name: '優惠快報', sender_email: 'promo@unknown.example', recipients: ['personal.demo@gmail.com'], subject: '今日限定優惠', snippet: '系統已將這封郵件判定為垃圾郵件。', text_body: '此為垃圾郵件篩選介面展示。', html_body: '', received_at: new Date(Date.now() - 50 * 3600_000).toISOString(), is_read: 1, is_starred: 0, has_attachments: 0, category: '廣告', account_email: 'personal.demo@gmail.com', provider: 'gmail', labels: [] },
+  { id: 6, account_id: 2, remote_id: 'demo-6', thread_id: 'demo-thread-6', folder: 'TRASH', sender_name: '購物通知', sender_email: 'order@shop.example', recipients: ['work.demo@yahoo.com'], subject: '已取消的訂單通知', snippet: '這封郵件位於垃圾桶。', text_body: '此為垃圾桶篩選介面展示。', html_body: '', received_at: new Date(Date.now() - 74 * 3600_000).toISOString(), is_read: 1, is_starred: 0, has_attachments: 0, category: '購物', account_email: 'work.demo@yahoo.com', provider: 'imap', labels: [] },
 ];
 let demoRules = [
   { id: 1, name: '銀行帳務', field: 'sender', operator: 'contains', value: 'bank', category: '帳單', enabled: 1 },
@@ -29,9 +33,17 @@ const demoApi = async (url, options = {}) => {
     let result = [...demoMessages];
     const search = parsed.searchParams.get('search')?.toLowerCase();
     const accountId = parsed.searchParams.get('accountId');
+    const category = parsed.searchParams.get('category');
+    const state = parsed.searchParams.get('state') || 'all';
     if (search) result = result.filter((item) => `${item.subject} ${item.sender_name} ${item.sender_email} ${item.snippet}`.toLowerCase().includes(search));
     if (accountId) result = result.filter((item) => String(item.account_id) === accountId);
-    if (parsed.searchParams.get('unread') === 'true') result = result.filter((item) => !item.is_read);
+    if (category) result = result.filter((item) => item.category === category);
+    if (state === 'unread') result = result.filter((item) => !item.is_read);
+    if (state === 'starred') result = result.filter((item) => item.is_starred);
+    if (state === 'archive') result = result.filter((item) => item.folder === 'ARCHIVE');
+    if (state === 'spam') result = result.filter((item) => item.folder === 'SPAM');
+    if (state === 'trash') result = result.filter((item) => item.folder === 'TRASH');
+    if (state === 'all') result = result.filter((item) => !['SPAM', 'TRASH'].includes(item.folder));
     return structuredClone(result);
   }
   const messageMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)$/);
@@ -91,12 +103,18 @@ async function renderInbox() {
   title.textContent = '統一收件匣';
   view.append(document.querySelector('#inbox-template').content.cloneNode(true));
   await loadAccounts();
-  document.querySelector('#account-filter').insertAdjacentHTML('beforeend', accountOptions());
+  const allMessages = await api('/api/messages?state=all');
+  const categories = [...new Set(allMessages.map((message) => message.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  const states = [['all', '全部郵件'], ['unread', '未讀'], ['starred', '星號'], ['archive', '封存'], ['spam', '垃圾郵件'], ['trash', '垃圾桶']];
+  const renderFilters = () => {
+    document.querySelector('#account-filters').innerHTML = `<button class="filter-chip ${inboxFilters.accountId ? '' : 'active'}" data-account="">所有帳號</button>${accounts.map((account) => `<button class="filter-chip ${String(inboxFilters.accountId) === String(account.id) ? 'active' : ''}" data-account="${account.id}"><span class="chip-dot"></span>${escapeHtml(account.display_name || account.email)}</button>`).join('')}`;
+    document.querySelector('#category-filters').innerHTML = `<button class="filter-chip ${inboxFilters.category ? '' : 'active'}" data-category="">所有分類</button>${categories.map((category) => `<button class="filter-chip ${inboxFilters.category === category ? 'active' : ''}" data-category="${escapeHtml(category)}"><span class="chip-dot"></span>${escapeHtml(category)}</button>`).join('')}`;
+    document.querySelector('#mail-filters').innerHTML = states.map(([value, label]) => `<button class="filter-chip ${inboxFilters.state === value ? 'active' : ''}" data-state="${value}">${label}</button>`).join('');
+  };
+  renderFilters();
   const update = async () => {
     const search = document.querySelector('#search-input').value;
-    const accountId = document.querySelector('#account-filter').value;
-    const unread = document.querySelector('#read-filter').value;
-    const query = new URLSearchParams({ ...(search && { search }), ...(accountId && { accountId }), ...(unread && { unread }) });
+    const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state });
     document.querySelector('#message-list').innerHTML = '<div class="loading">載入郵件中…</div>';
     messages = await api(`/api/messages?${query}`);
     renderMessageList();
@@ -104,8 +122,11 @@ async function renderInbox() {
   };
   let timer;
   document.querySelector('#search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(update, 250); });
-  document.querySelector('#account-filter').addEventListener('change', update);
-  document.querySelector('#read-filter').addEventListener('change', update);
+  document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-account]'); if (!button) return; inboxFilters.accountId = button.dataset.account; renderFilters(); update(); });
+  document.querySelector('#category-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-category]'); if (!button) return; inboxFilters.category = button.dataset.category; renderFilters(); update(); });
+  document.querySelector('#mail-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-state]'); if (!button) return; inboxFilters.state = button.dataset.state; renderFilters(); update(); });
+  document.querySelector('#add-account').addEventListener('click', () => { location.hash = '#accounts'; });
+  document.querySelector('#add-category').addEventListener('click', () => { location.hash = '#rules'; });
   await update();
 }
 

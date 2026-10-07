@@ -88,7 +88,13 @@ export function listMessages(db, filters = {}) {
   const where = [];
   const params = {};
   if (filters.accountId) { where.push('m.account_id=:accountId'); params.accountId = Number(filters.accountId); }
-  if (filters.unread === 'true') where.push('m.is_read=0');
+  const state = filters.state || (filters.unread === 'true' ? 'unread' : 'all');
+  if (state === 'unread') where.push('m.is_read=0');
+  if (state === 'starred') where.push('m.is_starred=1');
+  if (state === 'archive') where.push("m.folder='ARCHIVE'");
+  if (state === 'spam') where.push("m.folder='SPAM'");
+  if (state === 'trash') where.push("m.folder='TRASH'");
+  if (state === 'all') where.push("m.folder NOT IN ('SPAM','TRASH')");
   if (filters.category) { where.push('m.category=:category'); params.category = filters.category; }
   if (filters.search) {
     where.push(`(m.subject LIKE :search ESCAPE '\\' OR m.sender_name LIKE :search ESCAPE '\\' OR m.sender_email LIKE :search ESCAPE '\\' OR m.snippet LIKE :search ESCAPE '\\')`);
@@ -96,7 +102,7 @@ export function listMessages(db, filters = {}) {
   }
   const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 500);
   const sql = `SELECT m.id,m.account_id,m.remote_id,m.sender_name,m.sender_email,m.subject,m.snippet,m.received_at,
-    m.is_read,m.is_starred,m.has_attachments,m.category,a.email account_email,a.provider
+    m.folder,m.is_read,m.is_starred,m.has_attachments,m.category,a.email account_email,a.provider
     FROM messages m JOIN accounts a ON a.id=m.account_id
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY datetime(m.received_at) DESC LIMIT ${limit}`;
   return db.prepare(sql).all(params);
