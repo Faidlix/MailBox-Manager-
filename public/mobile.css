@@ -1,0 +1,57 @@
+html,body{max-width:100%;overflow-x:hidden}.app-shell,main,#view,.mail-layout,.message-list,.message-detail,.inbox-controls,.filter-group,.filter-rail,.account-grid,.split{min-width:0;max-width:100%}img,video,iframe{max-width:100%}.nav-icon{display:none}
+@media(max-width:700px){
+  body{padding-bottom:76px;background:#f4f5ef}
+  .app-shell{display:block;width:100%;min-height:100dvh}
+  .sidebar{position:fixed;z-index:50;inset:auto 0 0 0;width:100%;height:76px;padding:7px 8px calc(7px + env(safe-area-inset-bottom));background:#173f32;box-shadow:0 -8px 28px rgba(15,37,29,.18)}
+  .sidebar .brand,.sidebar .privacy-note{display:none}
+  .sidebar nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;width:100%;height:100%;overflow:visible}
+  .sidebar nav a{position:relative;min-width:0;padding:5px 2px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.72rem;line-height:1.05;color:#c7d8d0;white-space:nowrap}
+  .sidebar nav a.active{background:rgba(255,255,255,.12);color:#fff}
+  .nav-icon{display:block;font-size:1.32rem;line-height:1;font-weight:800;color:var(--lime)}
+  .nav-label{display:block;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .sidebar .badge{position:absolute;top:2px;left:calc(50% + 7px);min-width:19px;padding:2px 5px;font-size:.65rem;line-height:1}
+  main{width:100%;padding:18px 12px 24px}
+  .topbar{align-items:flex-end;gap:10px;margin-bottom:16px}
+  .topbar>div{min-width:0;flex:1}
+  .eyebrow{font-size:.64rem;line-height:1.35;letter-spacing:.11em;white-space:normal}
+  .topbar h1{font-size:2.05rem;line-height:1.05;margin-top:4px;overflow-wrap:anywhere}
+  .topbar .primary{flex:0 0 auto;min-height:44px;padding:9px 13px;border-radius:12px;font-size:.92rem}
+  .card{border-radius:15px;box-shadow:0 8px 24px rgba(26,48,38,.07)}
+  .inbox-controls{width:100%;padding:13px 12px;gap:13px;margin-bottom:12px}
+  .inbox-controls .search{display:block;width:100%}
+  .inbox-controls .search input{width:100%;height:44px;font-size:1rem}
+  .filter-rail{width:100%;grid-template-columns:minmax(0,1fr) 44px;gap:6px;overflow:hidden}
+  .filter-scroll{min-width:0;width:100%;max-width:100%;gap:7px;padding:2px 1px 6px;overflow-x:auto;overflow-y:hidden;touch-action:pan-x;scrollbar-width:none}
+  .filter-scroll::-webkit-scrollbar{display:none}
+  .filter-chip{min-height:42px;padding:9px 13px;font-size:.9rem}
+  .filter-add{position:relative;z-index:2;width:44px;height:44px;border-radius:12px;box-shadow:-8px 0 14px rgba(255,254,250,.95)}
+  .mail-layout{display:block;width:100%;min-height:0}
+  .message-list{width:100%;overflow:hidden}
+  .message-row{width:100%;padding:15px 14px 15px 18px}
+  .message-row.unread:before{left:7px;top:21px}
+  .row-top{align-items:flex-start;gap:8px}
+  .sender{min-width:0;flex:1;font-size:1rem}
+  .date{flex:0 0 auto;font-size:.72rem;max-width:38%;white-space:normal;text-align:right}
+  .subject{font-size:.96rem;margin-top:6px}
+  .snippet{font-size:.82rem}
+  .account-pill,.category-pill{max-width:72%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+  .message-detail{display:none;width:100%;min-height:0;margin:0;padding:20px 16px;overflow:visible}
+  .mail-layout.mobile-detail-open .message-list{display:none}
+  .mail-layout.mobile-detail-open .message-detail{display:block}
+  .message-detail h2{font-size:1.6rem;overflow-wrap:anywhere}
+  .message-meta{overflow-wrap:anywhere}
+  .message-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .message-actions button{min-width:0;padding:10px 7px;font-size:.87rem}
+  .mobile-back{display:inline-flex!important;align-items:center;gap:5px;margin:0 0 16px;padding:9px 12px}
+  .mail-body{width:100%;overflow-wrap:anywhere}
+  .mail-body pre{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+  .mail-body iframe{width:100%;min-height:58dvh}
+  .form-card{padding:18px 14px;gap:15px}
+  .split{display:grid;grid-template-columns:1fr;gap:14px}
+  .account-card,.rule-card{padding:15px;gap:10px}
+  .account-card .account-info{min-width:0;flex-basis:calc(100% - 60px)}
+  .account-info b,.account-info small{overflow-wrap:anywhere}
+  .help .card{padding:19px 16px}.code{overflow-wrap:anywhere;word-break:break-word}
+  #notice{left:12px;right:12px;top:12px;max-width:none}
+}
+@media(min-width:701px){.mobile-back{display:none!important}}

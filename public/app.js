@@ -155,6 +155,7 @@ async function openMessage(id) {
   const detail = document.querySelector('#message-detail');
   detail.classList.remove('empty-state');
   detail.innerHTML = `
+    <button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button>
     <div><span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span></div>
     <h2>${escapeHtml(message.subject)}</h2>
     <div class="message-meta"><b>${escapeHtml(message.sender_name || message.sender_email)}</b> &lt;${escapeHtml(message.sender_email)}&gt;<br><small>${formatDate(message.received_at)}</small></div>
@@ -165,6 +166,16 @@ async function openMessage(id) {
       <button class="danger" data-action="trash">移至垃圾桶</button>
     </div>
     <div class="mail-body"></div>`;
+  const layout = detail.closest('.mail-layout');
+  layout.dataset.listScrollY = String(window.scrollY);
+  layout.classList.add('mobile-detail-open');
+  if (matchMedia('(max-width: 700px)').matches) requestAnimationFrame(() => detail.scrollIntoView({ block: 'start' }));
+  detail.querySelector('[data-action="back"]').addEventListener('click', () => {
+    layout.classList.remove('mobile-detail-open');
+    detail.classList.add('empty-state');
+    detail.innerHTML = '<div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div>';
+    window.scrollTo({ top: Number(layout.dataset.listScrollY || 0), behavior: 'auto' });
+  });
   const body = detail.querySelector('.mail-body');
   if (message.html_body) {
     const iframe = document.createElement('iframe');

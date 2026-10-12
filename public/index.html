@@ -9,17 +9,18 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23194c39'/%3E%3Cpath d='M14 20h36v26H14z' fill='%23fffefa'/%3E%3Cpath d='m14 21 18 14 18-14' fill='none' stroke='%23c9e667' stroke-width='5'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/filters.css">
+  <link rel="stylesheet" href="/mobile.css">
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="#inbox" aria-label="MailBox Manager 首頁"><span class="brand-mark">M</span><span>MailBox<br>Manager</span></a>
       <nav>
-        <a href="#inbox" data-route="inbox">收件匣 <span id="unread-badge" class="badge">0</span></a>
-        <a href="#compose" data-route="compose">撰寫郵件</a>
-        <a href="#accounts" data-route="accounts">信箱帳號</a>
-        <a href="#rules" data-route="rules">分類規則</a>
-        <a href="#help" data-route="help">說明與免責聲明</a>
+        <a href="#inbox" data-route="inbox" aria-label="收件匣"><span class="nav-icon" aria-hidden="true">✉</span><span class="nav-label">收件匣</span><span id="unread-badge" class="badge">0</span></a>
+        <a href="#compose" data-route="compose" aria-label="撰寫郵件"><span class="nav-icon" aria-hidden="true">＋</span><span class="nav-label">寫信</span></a>
+        <a href="#accounts" data-route="accounts" aria-label="信箱帳號"><span class="nav-icon" aria-hidden="true">◎</span><span class="nav-label">帳號</span></a>
+        <a href="#rules" data-route="rules" aria-label="分類規則"><span class="nav-icon" aria-hidden="true">≡</span><span class="nav-label">分類</span></a>
+        <a href="#help" data-route="help" aria-label="說明與免責聲明"><span class="nav-icon" aria-hidden="true">?</span><span class="nav-label">說明</span></a>
       </nav>
       <div class="privacy-note"><span>本機優先</span><small>郵件索引與登入憑證留在這台電腦</small></div>
     </aside>
