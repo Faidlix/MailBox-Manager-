@@ -2,6 +2,11 @@ const view = document.querySelector('#view');
 const title = document.querySelector('#page-title');
 const noticeRoot = document.querySelector('#notice');
 const syncButton = document.querySelector('#sync-button');
+const composeButton = document.querySelector('#compose-button');
+const composeDialog = document.querySelector('#compose-dialog');
+const composeForm = document.querySelector('#compose-form');
+const helpButton = document.querySelector('#help-button');
+const helpDialog = document.querySelector('#help-dialog');
 let accounts = [];
 let messages = [];
 const inboxFilters = { accountId: '', category: '', state: 'all' };
@@ -126,7 +131,6 @@ async function renderInbox() {
     document.querySelector('#message-list').innerHTML = '<div class="loading">載入郵件中…</div>';
     messages = await api(`/api/messages?${query}`);
     renderMessageList();
-    document.querySelector('#unread-badge').textContent = messages.filter((message) => !message.is_read).length;
   };
   let timer;
   document.querySelector('#search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(update, 250); });
@@ -212,38 +216,23 @@ async function openMessage(id) {
     catch (error) { showNotice(error.message, true); setBusy(event.currentTarget, false); }
   });
   detail.querySelector('[data-action="reply"]').addEventListener('click', () => {
-    sessionStorage.setItem('draft', JSON.stringify({ accountId: message.account_id, to: message.sender_email, subject: message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`, text: `\n\n--- 原始郵件 ---\n${message.text_body || message.snippet}`, inReplyTo: message.thread_id }));
-    location.hash = '#compose';
+    openCompose({ accountId: message.account_id, to: message.sender_email, subject: message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`, text: `\n\n--- 原始郵件 ---\n${message.text_body || message.snippet}`, inReplyTo: message.thread_id });
   });
   detail.querySelector('[data-action="forward"]').addEventListener('click', () => {
-    sessionStorage.setItem('draft', JSON.stringify({ accountId: message.account_id, subject: message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`, text: `\n\n--- 轉寄郵件 ---\n寄件者：${message.sender_email}\n${message.text_body || message.snippet}` }));
-    location.hash = '#compose';
+    openCompose({ accountId: message.account_id, subject: message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`, text: `\n\n--- 轉寄郵件 ---\n寄件者：${message.sender_email}\n${message.text_body || message.snippet}` });
   });
   if (!message.is_read) {
     api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: true }) }).catch((error) => showNotice(error.message, true));
   }
 }
 
-async function renderCompose() {
-  title.textContent = '撰寫郵件';
-  view.append(document.querySelector('#compose-template').content.cloneNode(true));
+async function openCompose(draft = {}) {
   await loadAccounts();
-  const form = document.querySelector('#compose-form');
-  form.accountId.innerHTML = accountOptions();
-  const draft = JSON.parse(sessionStorage.getItem('draft') || '{}');
-  sessionStorage.removeItem('draft');
-  for (const [key, value] of Object.entries(draft)) if (form.elements[key]) form.elements[key].value = value;
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const button = form.querySelector('[type="submit"]');
-    setBusy(button, true, '寄送中…');
-    const data = Object.fromEntries(new FormData(form));
-    data.cc = data.cc ? data.cc.split(',').map((x) => x.trim()).filter(Boolean) : [];
-    if (draft.inReplyTo) data.inReplyTo = draft.inReplyTo;
-    try { await api('/api/send', { method: 'POST', body: JSON.stringify(data) }); form.reset(); showNotice('郵件已寄出'); }
-    catch (error) { showNotice(error.message, true); }
-    finally { setBusy(button, false); }
-  });
+  composeForm.reset();
+  composeForm.accountId.innerHTML = accountOptions(draft.accountId);
+  composeForm.dataset.inReplyTo = draft.inReplyTo || '';
+  for (const [key, value] of Object.entries(draft)) if (composeForm.elements[key] && key !== 'accountId') composeForm.elements[key].value = value;
+  if (!composeDialog.open) composeDialog.showModal();
 }
 
 async function mountAccounts(target, embedded = false) {
@@ -307,14 +296,36 @@ function renderHelp() {
   </div>`;
 }
 
-const routes = { inbox: renderInbox, compose: renderCompose, accounts: renderAccounts, rules: renderRules, help: renderHelp };
 async function renderRoute() {
-  const route = location.hash.slice(1) || 'inbox';
+  if (location.hash !== '#inbox') history.replaceState(null, '', '#inbox');
   view.innerHTML = '';
-  document.querySelectorAll('[data-route]').forEach((link) => link.classList.toggle('active', link.dataset.route === route));
-  syncButton.hidden = route !== 'inbox';
-  try { await (routes[route] || routes.inbox)(); view.focus(); } catch (error) { view.innerHTML = `<div class="card loading">載入失敗：${escapeHtml(error.message)}</div>`; }
+  syncButton.hidden = false;
+  title.textContent = '統一收件匣';
+  try { await renderInbox(); view.focus(); } catch (error) { view.innerHTML = `<div class="card loading">載入失敗：${escapeHtml(error.message)}</div>`; }
 }
+
+composeButton.addEventListener('click', () => openCompose());
+composeForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = composeForm.querySelector('[type="submit"]');
+  setBusy(button, true, '寄送中…');
+  const data = Object.fromEntries(new FormData(composeForm));
+  data.cc = data.cc ? data.cc.split(',').map((value) => value.trim()).filter(Boolean) : [];
+  if (composeForm.dataset.inReplyTo) data.inReplyTo = composeForm.dataset.inReplyTo;
+  try {
+    await api('/api/send', { method: 'POST', body: JSON.stringify(data) });
+    composeDialog.close();
+    composeForm.reset();
+    showNotice('郵件已寄出');
+  } catch (error) { showNotice(error.message, true); }
+  finally { setBusy(button, false); }
+});
+document.querySelector('#compose-cancel').addEventListener('click', () => { composeDialog.close(); composeForm.reset(); });
+document.querySelector('#compose-close').addEventListener('click', () => { composeDialog.close(); composeForm.reset(); });
+helpButton.addEventListener('click', () => helpDialog.showModal());
+document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
+document.querySelector('#help-done').addEventListener('click', () => helpDialog.close());
+[composeDialog, helpDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
 
 syncButton.addEventListener('click', async () => {
   setBusy(syncButton, true, '同步中…');

@@ -10,22 +10,14 @@
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/filters.css">
   <link rel="stylesheet" href="/mobile.css">
+  <link rel="stylesheet" href="/single-view.css">
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
-      <a class="brand" href="#inbox" aria-label="MailBox Manager 首頁"><span class="brand-mark">M</span><span>MailBox<br>Manager</span></a>
-      <nav>
-        <a href="#inbox" data-route="inbox" aria-label="收件匣"><span class="nav-icon" aria-hidden="true">✉</span><span class="nav-label">收件匣</span><span id="unread-badge" class="badge">0</span></a>
-        <a href="#compose" data-route="compose" aria-label="撰寫郵件"><span class="nav-icon" aria-hidden="true">＋</span><span class="nav-label">寫信</span></a>
-        <a href="#help" data-route="help" aria-label="說明與免責聲明"><span class="nav-icon" aria-hidden="true">?</span><span class="nav-label">說明</span></a>
-      </nav>
-      <div class="privacy-note"><span>本機優先</span><small>郵件索引與登入憑證留在這台電腦</small></div>
-    </aside>
     <main>
       <header class="topbar">
-        <div><p class="eyebrow">PERSONAL COMMUNICATION HUB <span id="demo-label" hidden>· 介面測試版</span></p><h1 id="page-title">統一收件匣</h1></div>
-        <button id="sync-button" class="primary">同步全部</button>
+        <div class="title-block"><p class="eyebrow">PERSONAL COMMUNICATION HUB <span id="demo-label" hidden>· 介面測試版</span></p><div class="title-line"><h1 id="page-title">統一收件匣</h1><button id="help-button" class="help-button" type="button" aria-label="開啟說明">?</button></div></div>
+        <div class="top-actions"><button id="compose-button" class="ghost" type="button">寫信</button><button id="sync-button" class="primary">同步全部</button></div>
       </header>
       <div id="notice" role="status" aria-live="polite"></div>
       <section id="view" tabindex="-1"></section>
@@ -54,16 +46,22 @@
       </div>
     </div>
   </template>
-  <template id="compose-template">
-    <form id="compose-form" class="form-card card narrow">
+  <dialog id="compose-dialog" class="app-dialog compose-dialog" aria-labelledby="compose-title">
+    <form id="compose-form" class="form-card compose-modal-form">
+      <div class="dialog-heading"><div><p class="eyebrow">NEW MESSAGE</p><h2 id="compose-title">撰寫郵件</h2></div><button class="dialog-x" id="compose-close" type="button" aria-label="關閉寫信視窗">×</button></div>
       <label>寄件帳號<select name="accountId" required></select></label>
       <label>收件者<input name="to" type="email" multiple placeholder="name@example.com" required></label>
       <label>副本<input name="cc" type="email" multiple placeholder="選填，以逗號分隔"></label>
       <label>主旨<input name="subject" required></label>
       <label>內容<textarea name="text" rows="13" required></textarea></label>
-      <div class="form-actions"><button type="submit" class="primary">寄出郵件</button></div>
+      <div class="form-actions"><button type="submit" class="primary">寄出郵件</button><button id="compose-cancel" type="button" class="ghost">取消</button></div>
     </form>
-  </template>
+  </dialog>
+  <dialog id="help-dialog" class="app-dialog help-dialog" aria-labelledby="help-title">
+    <div class="dialog-heading"><div><p class="eyebrow">MAILBOX MANAGER</p><h2 id="help-title">使用說明</h2></div><button class="dialog-x" id="help-close" type="button" aria-label="關閉說明">×</button></div>
+    <div class="dialog-body"><p>使用帳號與分類按鈕篩選郵件；齒輪可在收件匣內管理帳號或分類規則。點選郵件即可閱讀、回覆、轉寄或移至垃圾桶。</p><h3>帳號安全</h3><p>Gmail 使用 OAuth 2.0；Yahoo 與一般 IMAP 信箱應使用應用程式密碼。請勿把 OAuth 憑證、應用程式密碼或本機資料目錄提交到 Git。</p><h3>免責聲明</h3><p>同步、標記已讀、寄送及刪除可能直接變更遠端信箱。使用前請備份重要郵件。開發者不保證郵件資料、同步結果、通知時效或第三方服務持續可用，亦不對誤刪、未送達、資料遺失、帳號限制、憑證外洩或其他損失負責。</p></div>
+    <div class="form-actions"><button id="help-done" type="button" class="primary">我知道了</button></div>
+  </dialog>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
