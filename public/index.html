@@ -18,8 +18,6 @@
       <nav>
         <a href="#inbox" data-route="inbox" aria-label="收件匣"><span class="nav-icon" aria-hidden="true">✉</span><span class="nav-label">收件匣</span><span id="unread-badge" class="badge">0</span></a>
         <a href="#compose" data-route="compose" aria-label="撰寫郵件"><span class="nav-icon" aria-hidden="true">＋</span><span class="nav-label">寫信</span></a>
-        <a href="#accounts" data-route="accounts" aria-label="信箱帳號"><span class="nav-icon" aria-hidden="true">◎</span><span class="nav-label">帳號</span></a>
-        <a href="#rules" data-route="rules" aria-label="分類規則"><span class="nav-icon" aria-hidden="true">≡</span><span class="nav-label">分類</span></a>
         <a href="#help" data-route="help" aria-label="說明與免責聲明"><span class="nav-icon" aria-hidden="true">?</span><span class="nav-label">說明</span></a>
       </nav>
       <div class="privacy-note"><span>本機優先</span><small>郵件索引與登入憑證留在這台電腦</small></div>
@@ -37,11 +35,11 @@
     <div class="inbox-controls card">
       <label class="search"><span>搜尋</span><input id="search-input" placeholder="主旨、寄件者或內容摘要"></label>
       <div class="filter-group" aria-labelledby="account-filter-label">
-        <div class="filter-heading" id="account-filter-label">信箱帳號</div>
+        <div class="filter-heading-row"><div class="filter-heading" id="account-filter-label">信箱帳號</div><button class="filter-settings" id="account-settings" type="button" aria-label="設定信箱帳號" aria-pressed="false"><span aria-hidden="true">⚙</span> 設定</button></div>
         <div class="filter-rail"><div id="account-filters" class="filter-scroll"></div><button class="filter-add" id="add-account" type="button" aria-label="增加信箱帳號">＋</button></div>
       </div>
       <div class="filter-group" aria-labelledby="category-filter-label">
-        <div class="filter-heading" id="category-filter-label">自動分類</div>
+        <div class="filter-heading-row"><div class="filter-heading" id="category-filter-label">自動分類</div><button class="filter-settings" id="category-settings" type="button" aria-label="設定自動分類" aria-pressed="false"><span aria-hidden="true">⚙</span> 設定</button></div>
         <div class="filter-rail"><div id="category-filters" class="filter-scroll"></div><button class="filter-add" id="add-category" type="button" aria-label="增加分類條件">＋</button></div>
       </div>
       <div class="filter-group" aria-labelledby="mail-filter-label">
@@ -49,9 +47,11 @@
         <div id="mail-filters" class="filter-scroll status-filters"></div>
       </div>
     </div>
-    <div class="mail-layout">
-      <div id="message-list" class="message-list card"></div>
-      <article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article>
+    <div id="inbox-content">
+      <div class="mail-layout">
+        <div id="message-list" class="message-list card"></div>
+        <article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article>
+      </div>
     </div>
   </template>
   <template id="compose-template">

@@ -4,7 +4,7 @@ html,body{max-width:100%;overflow-x:hidden}.app-shell,main,#view,.mail-layout,.m
   .app-shell{display:block;width:100%;min-height:100dvh}
   .sidebar{position:fixed;z-index:50;inset:auto 0 0 0;width:100%;height:76px;padding:7px 8px calc(7px + env(safe-area-inset-bottom));background:#173f32;box-shadow:0 -8px 28px rgba(15,37,29,.18)}
   .sidebar .brand,.sidebar .privacy-note{display:none}
-  .sidebar nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;width:100%;height:100%;overflow:visible}
+  .sidebar nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;width:100%;height:100%;overflow:visible}
   .sidebar nav a{position:relative;min-width:0;padding:5px 2px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.72rem;line-height:1.05;color:#c7d8d0;white-space:nowrap}
   .sidebar nav a.active{background:rgba(255,255,255,.12);color:#fff}
   .nav-icon{display:block;font-size:1.32rem;line-height:1;font-weight:800;color:var(--lime)}
@@ -25,6 +25,7 @@ html,body{max-width:100%;overflow-x:hidden}.app-shell,main,#view,.mail-layout,.m
   .filter-scroll::-webkit-scrollbar{display:none}
   .filter-chip{min-height:42px;padding:9px 13px;font-size:.9rem}
   .filter-add{position:relative;z-index:2;width:44px;height:44px;border-radius:12px;box-shadow:-8px 0 14px rgba(255,254,250,.95)}
+  .filter-heading-row{margin-bottom:5px}.filter-settings{min-height:34px;padding:5px 9px;font-size:.76rem}.inline-panel-head{align-items:flex-start}.inline-panel-head h2{font-size:1.35rem}.inline-panel-head p{font-size:.85rem}.inline-panel-close{padding:9px 11px}
   .mail-layout{display:block;width:100%;min-height:0}
   .message-list{width:100%;overflow:hidden}
   .message-row{width:100%;padding:15px 14px 15px 18px}

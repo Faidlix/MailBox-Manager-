@@ -106,6 +106,12 @@ async function renderInbox() {
   const allMessages = await api('/api/messages?state=all');
   const categories = [...new Set(allMessages.map((message) => message.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   const states = [['all', '全部郵件'], ['unread', '未讀'], ['starred', '星號'], ['archive', '封存'], ['spam', '垃圾郵件'], ['trash', '垃圾桶']];
+  const inboxContent = document.querySelector('#inbox-content');
+  const mailShell = () => '<div class="mail-layout"><div id="message-list" class="message-list card"></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>';
+  const setSettingsState = (active = '') => {
+    document.querySelector('#account-settings').setAttribute('aria-pressed', String(active === 'accounts'));
+    document.querySelector('#category-settings').setAttribute('aria-pressed', String(active === 'rules'));
+  };
   const renderFilters = () => {
     document.querySelector('#account-filters').innerHTML = `<button class="filter-chip ${inboxFilters.accountId ? '' : 'active'}" data-account="">所有帳號</button>${accounts.map((account) => `<button class="filter-chip ${String(inboxFilters.accountId) === String(account.id) ? 'active' : ''}" data-account="${account.id}"><span class="chip-dot"></span>${escapeHtml(account.display_name || account.email)}</button>`).join('')}`;
     document.querySelector('#category-filters').innerHTML = `<button class="filter-chip ${inboxFilters.category ? '' : 'active'}" data-category="">所有分類</button>${categories.map((category) => `<button class="filter-chip ${inboxFilters.category === category ? 'active' : ''}" data-category="${escapeHtml(category)}"><span class="chip-dot"></span>${escapeHtml(category)}</button>`).join('')}`;
@@ -113,6 +119,8 @@ async function renderInbox() {
   };
   renderFilters();
   const update = async () => {
+    if (!document.querySelector('#message-list')) inboxContent.innerHTML = mailShell();
+    setSettingsState();
     const search = document.querySelector('#search-input').value;
     const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state });
     document.querySelector('#message-list').innerHTML = '<div class="loading">載入郵件中…</div>';
@@ -125,8 +133,16 @@ async function renderInbox() {
   document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-account]'); if (!button) return; inboxFilters.accountId = button.dataset.account; renderFilters(); update(); });
   document.querySelector('#category-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-category]'); if (!button) return; inboxFilters.category = button.dataset.category; renderFilters(); update(); });
   document.querySelector('#mail-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-state]'); if (!button) return; inboxFilters.state = button.dataset.state; renderFilters(); update(); });
-  document.querySelector('#add-account').addEventListener('click', () => { location.hash = '#accounts'; });
-  document.querySelector('#add-category').addEventListener('click', () => { location.hash = '#rules'; });
+  const openSettings = async (type) => {
+    setSettingsState(type);
+    if (type === 'accounts') await mountAccounts(inboxContent, true);
+    else await mountRules(inboxContent, true);
+    requestAnimationFrame(() => inboxContent.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+  };
+  document.querySelector('#account-settings').addEventListener('click', () => openSettings('accounts'));
+  document.querySelector('#category-settings').addEventListener('click', () => openSettings('rules'));
+  document.querySelector('#add-account').addEventListener('click', () => openSettings('accounts'));
+  document.querySelector('#add-category').addEventListener('click', () => openSettings('rules'));
   await update();
 }
 
@@ -230,44 +246,55 @@ async function renderCompose() {
   });
 }
 
-async function renderAccounts() {
-  title.textContent = '信箱帳號';
+async function mountAccounts(target, embedded = false) {
   await loadAccounts();
-  view.innerHTML = `
+  target.innerHTML = `<div class="inline-settings">
+    ${embedded ? '<div class="inline-panel-head"><div><h2>信箱帳號設定</h2><p>管理現有帳號或新增 Gmail、Yahoo 與一般信箱。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}
     <div class="account-grid">${accounts.length ? accounts.map((account) => `
       <div class="account-card card"><div class="account-icon">${account.provider === 'gmail' ? 'G' : 'IM'}</div><div class="account-info"><b>${escapeHtml(account.email)}</b><small>${account.provider === 'gmail' ? 'Google OAuth' : 'IMAP / SMTP'} · ${account.last_synced_at ? `上次同步 ${formatDate(account.last_synced_at)}` : '尚未同步'}</small></div><button class="ghost sync-one" data-id="${account.id}">同步</button><button class="danger delete-account" data-id="${account.id}">移除</button></div>`).join('') : '<div class="card loading">尚未加入任何信箱。</div>'}</div>
     <h2 class="section-title" style="margin-top:32px">新增信箱</h2>
     <div class="split">
       <form id="gmail-form" class="form-card card"><h3>Gmail</h3><p>使用 Google OAuth 授權，不會儲存 Gmail 密碼。請先建立「桌面應用程式」OAuth 憑證，並加入重新導向 URI：<br><span class="code">${escapeHtml(location.origin)}/api/oauth/google/callback</span></p><label>Google Client ID<input name="clientId" required autocomplete="off"></label><label>Google Client Secret<input name="clientSecret" type="password" required autocomplete="off"></label><div class="form-actions"><button class="primary" type="submit">連線 Gmail</button></div></form>
       <form id="imap-form" class="form-card card"><h3>Yahoo / 一般信箱</h3><p>Yahoo 請使用「應用程式密碼」，不要填入一般登入密碼。</p><label>Email<input name="email" type="email" required></label><label>應用程式密碼<input name="password" type="password" required autocomplete="off"></label><label>IMAP 主機<input name="imapHost" value="imap.mail.yahoo.com" required></label><label>SMTP 主機<input name="smtpHost" value="smtp.mail.yahoo.com" required></label><div class="split"><label>IMAP 連接埠<input name="imapPort" type="number" value="993"></label><label>SMTP 連接埠<input name="smtpPort" type="number" value="465"></label></div><div class="form-actions"><button class="primary" type="submit">加入信箱</button></div></form>
-    </div>`;
-  document.querySelector('#gmail-form').addEventListener('submit', async (event) => {
+    </div></div>`;
+  target.querySelector('.inline-panel-close')?.addEventListener('click', () => renderRoute());
+  target.querySelector('#gmail-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
     try { const data = Object.fromEntries(new FormData(event.currentTarget)); const result = await api('/api/accounts/gmail/auth-url', { method: 'POST', body: JSON.stringify(data) }); window.open(result.url, '_blank', 'noopener'); showNotice('請在新視窗完成 Google 授權'); }
     catch (error) { showNotice(error.message, true); }
     finally { setBusy(button, false); }
   });
-  document.querySelector('#imap-form').addEventListener('submit', async (event) => {
+  target.querySelector('#imap-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
-    try { const data = Object.fromEntries(new FormData(event.currentTarget)); await api('/api/accounts/imap', { method: 'POST', body: JSON.stringify(data) }); showNotice('信箱已加入'); await renderRoute(); }
+    try { const data = Object.fromEntries(new FormData(event.currentTarget)); await api('/api/accounts/imap', { method: 'POST', body: JSON.stringify(data) }); showNotice('信箱已加入'); await mountAccounts(target, embedded); }
     catch (error) { showNotice(error.message, true); }
     finally { setBusy(button, false); }
   });
-  document.querySelectorAll('.sync-one').forEach((button) => button.addEventListener('click', async () => {
-    setBusy(button, true, '同步中…'); try { const result = await api(`/api/accounts/${button.dataset.id}/sync`, { method: 'POST' }); showNotice(`已同步 ${result.count} 封郵件`); await renderRoute(); } catch (error) { showNotice(error.message, true); setBusy(button, false); }
+  target.querySelectorAll('.sync-one').forEach((button) => button.addEventListener('click', async () => {
+    setBusy(button, true, '同步中…'); try { const result = await api(`/api/accounts/${button.dataset.id}/sync`, { method: 'POST' }); showNotice(`已同步 ${result.count} 封郵件`); await mountAccounts(target, embedded); } catch (error) { showNotice(error.message, true); setBusy(button, false); }
   }));
-  document.querySelectorAll('.delete-account').forEach((button) => button.addEventListener('click', async () => {
+  target.querySelectorAll('.delete-account').forEach((button) => button.addEventListener('click', async () => {
     if (!confirm('移除帳號與本機郵件索引？遠端信箱內容不會被刪除。')) return;
-    try { await api(`/api/accounts/${button.dataset.id}`, { method: 'DELETE' }); showNotice('帳號已從本機移除'); await renderRoute(); } catch (error) { showNotice(error.message, true); }
+    try { await api(`/api/accounts/${button.dataset.id}`, { method: 'DELETE' }); showNotice('帳號已從本機移除'); await mountAccounts(target, embedded); } catch (error) { showNotice(error.message, true); }
   }));
+}
+
+async function renderAccounts() {
+  title.textContent = '信箱帳號';
+  await mountAccounts(view);
+}
+
+async function mountRules(target, embedded = false) {
+  const rules = await api('/api/rules');
+  target.innerHTML = `<div class="inline-settings">${embedded ? '<div class="inline-panel-head"><div><h2>自動分類設定</h2><p>依寄件者或主旨新增分類條件。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}<form id="rule-form" class="form-card card narrow"><div class="split"><label>規則名稱<input name="name" placeholder="例如：購物通知" required></label><label>分類名稱<input name="category" placeholder="例如：購物" required></label></div><div class="split"><label>比對範圍<select name="field"><option value="sender">寄件者</option><option value="subject">主旨</option><option value="both">寄件者與主旨</option></select></label><label>比對方式<select name="operator"><option value="contains">包含</option><option value="equals">完全相同</option><option value="regex">正規表示式</option></select></label></div><label>比對文字<input name="value" placeholder="shopee 或 @company.com" required></label><div class="form-actions"><button class="primary">新增規則</button></div></form><h2 class="section-title" style="margin-top:32px">現有規則</h2><div class="rule-list">${rules.length ? rules.map((rule) => `<div class="rule-card card"><div><b>${escapeHtml(rule.name)}</b><div>${escapeHtml(rule.field)} ${escapeHtml(rule.operator)}「${escapeHtml(rule.value)}」→ ${escapeHtml(rule.category)}</div></div><button class="danger" data-id="${rule.id}">刪除</button></div>`).join('') : '<div class="card loading">還沒有分類規則。新規則會在下次同步時套用。</div>'}</div></div>`;
+  target.querySelector('.inline-panel-close')?.addEventListener('click', () => renderRoute());
+  target.querySelector('#rule-form').addEventListener('submit', async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { await api('/api/rules', { method: 'POST', body: JSON.stringify(data) }); showNotice('分類規則已新增'); await mountRules(target, embedded); } catch (error) { showNotice(error.message, true); } });
+  target.querySelectorAll('.rule-card button').forEach((button) => button.addEventListener('click', async () => { await api(`/api/rules/${button.dataset.id}`, { method: 'DELETE' }); await mountRules(target, embedded); }));
 }
 
 async function renderRules() {
   title.textContent = '分類規則';
-  const rules = await api('/api/rules');
-  view.innerHTML = `<form id="rule-form" class="form-card card narrow"><div class="split"><label>規則名稱<input name="name" placeholder="例如：購物通知" required></label><label>分類名稱<input name="category" placeholder="例如：購物" required></label></div><div class="split"><label>比對範圍<select name="field"><option value="sender">寄件者</option><option value="subject">主旨</option><option value="both">寄件者與主旨</option></select></label><label>比對方式<select name="operator"><option value="contains">包含</option><option value="equals">完全相同</option><option value="regex">正規表示式</option></select></label></div><label>比對文字<input name="value" placeholder="shopee 或 @company.com" required></label><div class="form-actions"><button class="primary">新增規則</button></div></form><h2 class="section-title" style="margin-top:32px">現有規則</h2><div class="rule-list">${rules.length ? rules.map((rule) => `<div class="rule-card card"><div><b>${escapeHtml(rule.name)}</b><div>${escapeHtml(rule.field)} ${escapeHtml(rule.operator)}「${escapeHtml(rule.value)}」→ ${escapeHtml(rule.category)}</div></div><button class="danger" data-id="${rule.id}">刪除</button></div>`).join('') : '<div class="card loading">還沒有分類規則。新規則會在下次同步時套用。</div>'}</div>`;
-  document.querySelector('#rule-form').addEventListener('submit', async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { await api('/api/rules', { method: 'POST', body: JSON.stringify(data) }); showNotice('分類規則已新增'); await renderRoute(); } catch (error) { showNotice(error.message, true); } });
-  document.querySelectorAll('.rule-card button').forEach((button) => button.addEventListener('click', async () => { await api(`/api/rules/${button.dataset.id}`, { method: 'DELETE' }); await renderRoute(); }));
+  await mountRules(view);
 }
 
 function renderHelp() {
