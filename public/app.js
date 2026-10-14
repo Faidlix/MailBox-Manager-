@@ -7,10 +7,22 @@ const composeDialog = document.querySelector('#compose-dialog');
 const composeForm = document.querySelector('#compose-form');
 const helpButton = document.querySelector('#help-button');
 const helpDialog = document.querySelector('#help-dialog');
+const quickFolderDialog = document.querySelector('#quick-folder-dialog');
+const quickFolderForm = document.querySelector('#quick-folder-form');
 const messageActionMenu = document.querySelector('#message-action-menu');
 let actionMessageId = null;
 let accounts = [];
 let messages = [];
+const QUICK_FOLDERS_KEY = 'mailbox-manager-quick-folders-v1';
+const loadQuickFolders = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(QUICK_FOLDERS_KEY));
+    return { accounts: Array.isArray(saved?.accounts) ? saved.accounts : [], categories: Array.isArray(saved?.categories) ? saved.categories : [] };
+  } catch { return { accounts: [], categories: [] }; }
+};
+let quickFolders = loadQuickFolders();
+let quickFolderType = 'accounts';
+const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
 const inboxFilters = { accountId: '', category: '', state: 'all' };
 const demoMode = location.protocol === 'https:' || new URLSearchParams(location.search).has('demo');
 const demoAccounts = [
@@ -108,12 +120,40 @@ function accountOptions(selected = '') {
   return accounts.map((account) => `<option value="${account.id}" ${String(account.id) === String(selected) ? 'selected' : ''}>${escapeHtml(account.email)} · ${account.provider === 'gmail' ? 'Gmail' : 'IMAP'}</option>`).join('');
 }
 
+function openQuickFolderDialog(type) {
+  quickFolderType = type;
+  quickFolderForm.reset();
+  const isAccount = type === 'accounts';
+  document.querySelector('#quick-folder-title').textContent = isAccount ? '新增信箱資料夾' : '新增分類資料夾';
+  document.querySelector('#quick-folder-name').placeholder = isAccount ? '例如：工作信箱' : '例如：銀行';
+  document.querySelector('#quick-folder-hint').textContent = isAccount ? '先建立名稱，再從標題旁的齒輪設定信箱連線。' : '先建立名稱，再從標題旁的齒輪設定自動分類規則。';
+  quickFolderDialog.showModal();
+  requestAnimationFrame(() => document.querySelector('#quick-folder-name').focus());
+}
+
+function quickFolderSection(type) {
+  const folders = quickFolders[type];
+  if (!folders.length) return '';
+  const isAccount = type === 'accounts';
+  return `<section class="quick-folder-section"><h3>${isAccount ? '待設定的信箱資料夾' : '分類資料夾'}</h3><div class="quick-folder-list">${folders.map((folder) => `<div class="quick-folder-item"><span>${escapeHtml(folder.name)}</span><button class="danger quick-folder-delete" type="button" data-folder-type="${type}" data-folder-id="${escapeHtml(folder.id)}" aria-label="刪除 ${escapeHtml(folder.name)}">刪除</button></div>`).join('')}</div><p class="quick-folder-note">${isAccount ? '使用下方的 Gmail 或 IMAP 表單完成連線。' : '使用下方規則，把符合條件的郵件歸入這些分類。'}</p></section>`;
+}
+
+function bindQuickFolderDeletes(target, refresh) {
+  target.querySelectorAll('.quick-folder-delete').forEach((button) => button.addEventListener('click', async () => {
+    const type = button.dataset.folderType;
+    quickFolders[type] = quickFolders[type].filter((folder) => folder.id !== button.dataset.folderId);
+    saveQuickFolders();
+    showNotice('資料夾已刪除');
+    await refresh();
+  }));
+}
+
 async function renderInbox() {
   title.textContent = '統一收件匣';
   view.append(document.querySelector('#inbox-template').content.cloneNode(true));
   await loadAccounts();
   const allMessages = await api('/api/messages?state=all');
-  const categories = [...new Set(allMessages.map((message) => message.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  const categories = [...new Set([...allMessages.map((message) => message.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   const states = [['all', '全部郵件'], ['unread', '未讀'], ['starred', '星號'], ['archive', '封存'], ['spam', '垃圾郵件'], ['trash', '垃圾桶']];
   const inboxContent = document.querySelector('#inbox-content');
   const mailShell = () => '<div class="mail-layout"><div id="message-list" class="message-list card"></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>';
@@ -122,7 +162,7 @@ async function renderInbox() {
     document.querySelector('#category-settings').setAttribute('aria-pressed', String(active === 'rules'));
   };
   const renderFilters = () => {
-    document.querySelector('#account-filters').innerHTML = `<button class="filter-chip ${inboxFilters.accountId ? '' : 'active'}" data-account="">所有帳號</button>${accounts.map((account) => `<button class="filter-chip ${String(inboxFilters.accountId) === String(account.id) ? 'active' : ''}" data-account="${account.id}"><span class="chip-dot"></span>${escapeHtml(account.display_name || account.email)}</button>`).join('')}`;
+    document.querySelector('#account-filters').innerHTML = `<button class="filter-chip ${inboxFilters.accountId ? '' : 'active'}" data-account="">所有帳號</button>${accounts.map((account) => `<button class="filter-chip ${String(inboxFilters.accountId) === String(account.id) ? 'active' : ''}" data-account="${account.id}"><span class="chip-dot"></span>${escapeHtml(account.display_name || account.email)}</button>`).join('')}${quickFolders.accounts.map((folder) => `<button class="filter-chip quick-folder-chip" data-quick-account="${escapeHtml(folder.id)}"><span class="chip-dot"></span>${escapeHtml(folder.name)}</button>`).join('')}`;
     document.querySelector('#category-filters').innerHTML = `<button class="filter-chip ${inboxFilters.category ? '' : 'active'}" data-category="">所有分類</button>${categories.map((category) => `<button class="filter-chip ${inboxFilters.category === category ? 'active' : ''}" data-category="${escapeHtml(category)}"><span class="chip-dot"></span>${escapeHtml(category)}</button>`).join('')}`;
     document.querySelector('#mail-filters').innerHTML = states.map(([value, label]) => `<button class="filter-chip ${inboxFilters.state === value ? 'active' : ''}" data-state="${value}">${label}</button>`).join('');
   };
@@ -139,6 +179,7 @@ async function renderInbox() {
   let timer;
   document.querySelector('#search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(update, 250); });
   document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-account]'); if (!button) return; inboxFilters.accountId = button.dataset.account; renderFilters(); update(); });
+  document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-quick-account]'); if (!button) return; const folder = quickFolders.accounts.find((item) => item.id === button.dataset.quickAccount); if (folder) showNotice(`「${folder.name}」已新增，請按標題旁的齒輪完成信箱連線。`); });
   document.querySelector('#category-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-category]'); if (!button) return; inboxFilters.category = button.dataset.category; renderFilters(); update(); });
   document.querySelector('#mail-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-state]'); if (!button) return; inboxFilters.state = button.dataset.state; renderFilters(); update(); });
   const openSettings = async (type) => {
@@ -149,8 +190,8 @@ async function renderInbox() {
   };
   document.querySelector('#account-settings').addEventListener('click', () => openSettings('accounts'));
   document.querySelector('#category-settings').addEventListener('click', () => openSettings('rules'));
-  document.querySelector('#add-account').addEventListener('click', () => openSettings('accounts'));
-  document.querySelector('#add-category').addEventListener('click', () => openSettings('rules'));
+  document.querySelector('#add-account').addEventListener('click', () => openQuickFolderDialog('accounts'));
+  document.querySelector('#add-category').addEventListener('click', () => openQuickFolderDialog('categories'));
   await update();
 }
 
@@ -379,6 +420,7 @@ async function mountAccounts(target, embedded = false) {
   await loadAccounts();
   target.innerHTML = `<div class="inline-settings">
     ${embedded ? '<div class="inline-panel-head"><div><h2>信箱帳號設定</h2><p>管理現有帳號或新增 Gmail、Yahoo 與一般信箱。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}
+    ${quickFolderSection('accounts')}
     <div class="account-grid">${accounts.length ? accounts.map((account) => `
       <div class="account-card card"><div class="account-icon">${account.provider === 'gmail' ? 'G' : 'IM'}</div><div class="account-info"><b>${escapeHtml(account.email)}</b><small>${account.provider === 'gmail' ? 'Google OAuth' : 'IMAP / SMTP'} · ${account.last_synced_at ? `上次同步 ${formatDate(account.last_synced_at)}` : '尚未同步'}</small></div><button class="ghost sync-one" data-id="${account.id}">同步</button><button class="danger delete-account" data-id="${account.id}">移除</button></div>`).join('') : '<div class="card loading">尚未加入任何信箱。</div>'}</div>
     <h2 class="section-title" style="margin-top:32px">新增信箱</h2>
@@ -387,6 +429,7 @@ async function mountAccounts(target, embedded = false) {
       <form id="imap-form" class="form-card card"><h3>Yahoo / 一般信箱</h3><p>Yahoo 請使用「應用程式密碼」，不要填入一般登入密碼。</p><label>Email<input name="email" type="email" required></label><label>應用程式密碼<input name="password" type="password" required autocomplete="off"></label><label>IMAP 主機<input name="imapHost" value="imap.mail.yahoo.com" required></label><label>SMTP 主機<input name="smtpHost" value="smtp.mail.yahoo.com" required></label><div class="split"><label>IMAP 連接埠<input name="imapPort" type="number" value="993"></label><label>SMTP 連接埠<input name="smtpPort" type="number" value="465"></label></div><div class="form-actions"><button class="primary" type="submit">加入信箱</button></div></form>
     </div></div>`;
   target.querySelector('.inline-panel-close')?.addEventListener('click', () => renderRoute());
+  bindQuickFolderDeletes(target, () => mountAccounts(target, embedded));
   target.querySelector('#gmail-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
     try { const data = Object.fromEntries(new FormData(event.currentTarget)); const result = await api('/api/accounts/gmail/auth-url', { method: 'POST', body: JSON.stringify(data) }); window.open(result.url, '_blank', 'noopener'); showNotice('請在新視窗完成 Google 授權'); }
@@ -415,8 +458,9 @@ async function renderAccounts() {
 
 async function mountRules(target, embedded = false) {
   const rules = await api('/api/rules');
-  target.innerHTML = `<div class="inline-settings">${embedded ? '<div class="inline-panel-head"><div><h2>自動分類設定</h2><p>依寄件者或主旨新增分類條件。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}<form id="rule-form" class="form-card card narrow"><div class="split"><label>規則名稱<input name="name" placeholder="例如：購物通知" required></label><label>分類名稱<input name="category" placeholder="例如：購物" required></label></div><div class="split"><label>比對範圍<select name="field"><option value="sender">寄件者</option><option value="subject">主旨</option><option value="both">寄件者與主旨</option></select></label><label>比對方式<select name="operator"><option value="contains">包含</option><option value="equals">完全相同</option><option value="regex">正規表示式</option></select></label></div><label>比對文字<input name="value" placeholder="shopee 或 @company.com" required></label><div class="form-actions"><button class="primary">新增規則</button></div></form><h2 class="section-title" style="margin-top:32px">現有規則</h2><div class="rule-list">${rules.length ? rules.map((rule) => `<div class="rule-card card"><div><b>${escapeHtml(rule.name)}</b><div>${escapeHtml(rule.field)} ${escapeHtml(rule.operator)}「${escapeHtml(rule.value)}」→ ${escapeHtml(rule.category)}</div></div><button class="danger" data-id="${rule.id}">刪除</button></div>`).join('') : '<div class="card loading">還沒有分類規則。新規則會在下次同步時套用。</div>'}</div></div>`;
+  target.innerHTML = `<div class="inline-settings">${embedded ? '<div class="inline-panel-head"><div><h2>自動分類設定</h2><p>依寄件者或主旨新增分類條件。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}${quickFolderSection('categories')}<form id="rule-form" class="form-card card narrow"><div class="split"><label>規則名稱<input name="name" placeholder="例如：購物通知" required></label><label>分類名稱<input name="category" list="category-folder-options" placeholder="例如：購物" required><datalist id="category-folder-options">${quickFolders.categories.map((folder) => `<option value="${escapeHtml(folder.name)}"></option>`).join('')}</datalist></label></div><div class="split"><label>比對範圍<select name="field"><option value="sender">寄件者</option><option value="subject">主旨</option><option value="both">寄件者與主旨</option></select></label><label>比對方式<select name="operator"><option value="contains">包含</option><option value="equals">完全相同</option><option value="regex">正規表示式</option></select></label></div><label>比對文字<input name="value" placeholder="shopee 或 @company.com" required></label><div class="form-actions"><button class="primary">新增規則</button></div></form><h2 class="section-title" style="margin-top:32px">現有規則</h2><div class="rule-list">${rules.length ? rules.map((rule) => `<div class="rule-card card"><div><b>${escapeHtml(rule.name)}</b><div>${escapeHtml(rule.field)} ${escapeHtml(rule.operator)}「${escapeHtml(rule.value)}」→ ${escapeHtml(rule.category)}</div></div><button class="danger" data-id="${rule.id}">刪除</button></div>`).join('') : '<div class="card loading">還沒有分類規則。新規則會在下次同步時套用。</div>'}</div></div>`;
   target.querySelector('.inline-panel-close')?.addEventListener('click', () => renderRoute());
+  bindQuickFolderDeletes(target, () => mountRules(target, embedded));
   target.querySelector('#rule-form').addEventListener('submit', async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { await api('/api/rules', { method: 'POST', body: JSON.stringify(data) }); showNotice('分類規則已新增'); await mountRules(target, embedded); } catch (error) { showNotice(error.message, true); } });
   target.querySelectorAll('.rule-card button').forEach((button) => button.addEventListener('click', async () => { await api(`/api/rules/${button.dataset.id}`, { method: 'DELETE' }); await mountRules(target, embedded); }));
 }
@@ -462,10 +506,27 @@ composeForm.addEventListener('submit', async (event) => {
 });
 document.querySelector('#compose-cancel').addEventListener('click', () => { composeDialog.close(); composeForm.reset(); });
 document.querySelector('#compose-close').addEventListener('click', () => { composeDialog.close(); composeForm.reset(); });
+quickFolderForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = quickFolderForm.folderName.value.trim();
+  if (!name) return;
+  if (quickFolders[quickFolderType].some((folder) => folder.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    showNotice('已有相同名稱的資料夾', true);
+    return;
+  }
+  const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  quickFolders[quickFolderType].push({ id, name });
+  saveQuickFolders();
+  quickFolderDialog.close();
+  showNotice(`已新增「${name}」`);
+  await renderRoute();
+});
+document.querySelector('#quick-folder-cancel').addEventListener('click', () => quickFolderDialog.close());
+document.querySelector('#quick-folder-close').addEventListener('click', () => quickFolderDialog.close());
 helpButton.addEventListener('click', () => helpDialog.showModal());
 document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
 document.querySelector('#help-done').addEventListener('click', () => helpDialog.close());
-[composeDialog, helpDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+[composeDialog, helpDialog, quickFolderDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
 document.querySelector('#download-message').addEventListener('click', () => { if (actionMessageId) downloadMessage(actionMessageId); });
 document.addEventListener('pointerdown', (event) => { if (!messageActionMenu.hidden && !messageActionMenu.contains(event.target)) hideMessageMenu(); });
 window.addEventListener('scroll', hideMessageMenu, { passive: true });
