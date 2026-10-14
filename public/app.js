@@ -43,6 +43,16 @@ let demoRules = [
 ];
 
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+const toBase64 = (value = '') => {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+};
+const wrapBase64 = (value) => value.match(/.{1,76}/g)?.join('\r\n') || '';
+const DEMO_MARK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="24" fill="#194c39"/><rect x="19" y="27" width="58" height="43" rx="5" fill="#fffefa"/><path d="m21 31 27 22 27-22" fill="none" stroke="#c9e667" stroke-width="7" stroke-linejoin="round"/></svg>';
+const demoHtml = (message) => `<!doctype html><html><body style="margin:0;background:#f3f4ee;font-family:Arial,'Noto Sans TC',sans-serif;color:#17231d"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4ee;padding:28px 12px"><tr><td align="center"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#fffefa;border:1px solid #dde1d8;border-radius:18px;overflow:hidden"><tr><td style="padding:24px 28px;background:#194c39;color:#fff"><img src="data:image/svg+xml;base64,${toBase64(DEMO_MARK_SVG)}" width="48" height="48" alt="MailBox Manager" style="display:block;margin-bottom:16px"><div style="font-size:13px;letter-spacing:2px;color:#c9e667;font-weight:bold">MAILBOX MANAGER DEMO</div><h1 style="margin:8px 0 0;font-size:27px;line-height:1.3;color:#fff">${escapeHtml(message.subject)}</h1></td></tr><tr><td style="padding:28px;font-size:16px;line-height:1.8"><p style="margin-top:0;color:#66736b">寄件者：${escapeHtml(message.sender_name || message.sender_email)}</p>${String(message.text_body || message.snippet || '').split(/\n\n+/).map((paragraph) => `<p>${escapeHtml(paragraph).replaceAll('\n', '<br>')}</p>`).join('')}<div style="margin-top:28px;padding:14px 16px;border-radius:10px;background:#eef2e9;color:#365747;font-size:13px">此為介面展示郵件；下載後可由支援 EML 的郵件程式開啟。</div></td></tr></table></td></tr></table></body></html>`;
+demoMessages = demoMessages.map((message) => ({ ...message, html_body: demoHtml(message) }));
 const demoApi = async (url, options = {}) => {
   await new Promise((resolve) => setTimeout(resolve, 180));
   const method = options.method || 'GET';
@@ -238,11 +248,11 @@ async function archiveMessage(id) {
     await api(`/api/messages/${id}/archive`, { method: 'PATCH' });
     showNotice('郵件已封存');
     await renderRoute();
-  } catch (error) { showNotice(error.message, true); }
+    return true;
+  } catch (error) { showNotice(error.message, true); return false; }
 }
 
 async function trashMessage(id) {
-  if (!confirm('確定將這封郵件移至垃圾桶？')) return false;
   try {
     await api(`/api/messages/${id}`, { method: 'DELETE' });
     showNotice('郵件已移至垃圾桶');
@@ -258,11 +268,26 @@ function bindMessageGestures(row, id) {
   let tracking = false;
   let moved = false;
   let longPressed = false;
+  let committed = false;
+  let rowWidth = 0;
   let pressTimer;
-  const reset = () => { row.classList.remove('dragging'); row.style.transform = ''; };
+  const swipe = row.closest('.message-swipe');
+  const reset = () => { row.classList.remove('dragging'); row.style.transform = ''; swipe.style.removeProperty('--swipe-progress'); };
+  const commit = async (direction) => {
+    if (committed) return;
+    committed = true;
+    tracking = false;
+    clearTimeout(pressTimer);
+    row.dataset.ignoreClick = 'true';
+    row.classList.remove('dragging');
+    row.style.transform = `translateX(${direction === 'delete' ? '-' : ''}100%)`;
+    navigator.vibrate?.(20);
+    const ok = direction === 'delete' ? await trashMessage(id) : await archiveMessage(id);
+    if (!ok) { committed = false; reset(); setTimeout(() => { delete row.dataset.ignoreClick; }, 350); }
+  };
   row.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
-    tracking = true; moved = false; longPressed = false; deltaX = 0;
+    tracking = true; moved = false; longPressed = false; committed = false; deltaX = 0; rowWidth = row.getBoundingClientRect().width;
     startX = event.clientX; startY = event.clientY;
     row.setPointerCapture?.(event.pointerId);
     pressTimer = setTimeout(() => {
@@ -280,9 +305,11 @@ function bindMessageGestures(row, id) {
     if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearTimeout(pressTimer);
     if (Math.abs(dx) <= Math.abs(dy)) return;
     moved = Math.abs(dx) > 10;
-    deltaX = Math.max(-150, Math.min(150, dx));
+    deltaX = Math.max(-rowWidth, Math.min(rowWidth, dx));
     row.classList.add('dragging');
     row.style.transform = `translateX(${deltaX}px)`;
+    swipe.style.setProperty('--swipe-progress', String(Math.min(1, Math.abs(deltaX) / (rowWidth / 2))));
+    if (Math.abs(deltaX) >= rowWidth / 2) void commit(deltaX < 0 ? 'delete' : 'archive');
   });
   const finish = async () => {
     if (!tracking) return;
@@ -293,33 +320,36 @@ function bindMessageGestures(row, id) {
       row.dataset.ignoreClick = 'true';
       setTimeout(() => { delete row.dataset.ignoreClick; }, 350);
     }
-    if (deltaX <= -88) {
-      row.style.transform = 'translateX(-100%)';
-      if (!await trashMessage(id)) reset();
-    } else if (deltaX >= 88) {
-      row.style.transform = 'translateX(100%)';
-      await archiveMessage(id);
-    } else reset();
+    reset();
   };
   row.addEventListener('pointerup', finish);
-  row.addEventListener('pointercancel', () => { tracking = false; clearTimeout(pressTimer); reset(); });
+  row.addEventListener('pointercancel', () => { if (committed) return; tracking = false; clearTimeout(pressTimer); reset(); });
   row.addEventListener('contextmenu', (event) => { event.preventDefault(); clearTimeout(pressTimer); showMessageMenu(id, event.clientX, event.clientY); });
 }
 
 function demoEml(message) {
-  const bytes = new TextEncoder().encode(message.subject || '(無主旨)');
-  let encoded = '';
-  for (const byte of bytes) encoded += String.fromCharCode(byte);
+  const relatedBoundary = `mailbox-related-${message.id}`;
+  const alternativeBoundary = `mailbox-alternative-${message.id}`;
+  const html = (message.html_body || demoHtml(message)).replace(/data:image\/svg\+xml;base64,[^"']+/g, 'cid:mailbox-demo-mark');
   const headers = [
     `From: ${message.sender_name ? `"${message.sender_name.replaceAll('"', '')}" ` : ''}<${message.sender_email}>`,
     `To: ${(message.recipients || []).join(', ')}`,
     `Date: ${new Date(message.received_at).toUTCString()}`,
-    `Subject: =?UTF-8?B?${btoa(encoded)}?=`,
+    `Subject: =?UTF-8?B?${toBase64(message.subject || '(無主旨)')}?=`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
-    'Content-Transfer-Encoding: 8bit',
+    `Content-Type: multipart/related; boundary="${relatedBoundary}"`,
   ];
-  return `${headers.join('\r\n')}\r\n\r\n${message.text_body || message.snippet || ''}`;
+  const parts = [
+    `--${relatedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`, '',
+    `--${alternativeBoundary}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrapBase64(toBase64(message.text_body || message.snippet || '')),
+    `--${alternativeBoundary}`, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrapBase64(toBase64(html)),
+    `--${alternativeBoundary}--`,
+    `--${relatedBoundary}`, 'Content-Type: image/svg+xml; name="mailbox-mark.svg"', 'Content-Transfer-Encoding: base64', 'Content-ID: <mailbox-demo-mark>', 'Content-Disposition: inline; filename="mailbox-mark.svg"', '', wrapBase64(toBase64(DEMO_MARK_SVG)),
+  ];
+  if (message.has_attachments) parts.push(`--${relatedBoundary}`, 'Content-Type: text/plain; name="demo-attachment.txt"', 'Content-Transfer-Encoding: base64', 'Content-Disposition: attachment; filename="demo-attachment.txt"', '', wrapBase64(toBase64('MailBox Manager 示範附件\n')));
+  parts.push(`--${relatedBoundary}--`, '');
+  return `${headers.join('\r\n')}\r\n\r\n${parts.join('\r\n')}`;
 }
 
 async function downloadMessage(id) {
