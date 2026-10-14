@@ -1,7 +1,7 @@
 import { googleRedirectUri } from './config.js';
 import { applyRules } from './rules.js';
-import { gmailSend, gmailSetRead, gmailSync, gmailTrash } from './providers/gmail.js';
-import { imapSetRead, imapSync, imapTrash, smtpSend } from './providers/imap.js';
+import { gmailArchive, gmailGetRaw, gmailSend, gmailSetRead, gmailSync, gmailTrash } from './providers/gmail.js';
+import { imapArchive, imapGetRaw, imapSetRead, imapSync, imapTrash, smtpSend } from './providers/imap.js';
 
 export function createMailService({ db, q, vault, syncLimit }) {
   const secretFor = (account) => vault.open(account.secret);
@@ -53,7 +53,28 @@ export function createMailService({ db, q, vault, syncLimit }) {
     const secret = secretFor(account);
     if (account.provider === 'gmail') await gmailTrash(secret, googleRedirectUri, message.remote_id);
     else await imapTrash(secret, message.remote_id);
-    q.deleteMessage.run(messageId);
+    q.setMessageFolder.run('TRASH', messageId);
+  }
+
+  async function archive(messageId) {
+    const message = q.getMessage.get(messageId);
+    if (!message) throw Object.assign(new Error('找不到郵件'), { status: 404 });
+    const account = q.getAccount.get(message.account_id);
+    const secret = secretFor(account);
+    if (account.provider === 'gmail') await gmailArchive(secret, googleRedirectUri, message.remote_id);
+    else await imapArchive(secret, message.remote_id, message.folder);
+    q.setMessageFolder.run('ARCHIVE', messageId);
+  }
+
+  async function getRaw(messageId) {
+    const message = q.getMessage.get(messageId);
+    if (!message) throw Object.assign(new Error('找不到郵件'), { status: 404 });
+    const account = q.getAccount.get(message.account_id);
+    const secret = secretFor(account);
+    const raw = account.provider === 'gmail'
+      ? await gmailGetRaw(secret, googleRedirectUri, message.remote_id)
+      : await imapGetRaw(secret, message.remote_id, message.folder);
+    return { raw, subject: message.subject };
   }
 
   async function send(accountId, message) {
@@ -64,5 +85,5 @@ export function createMailService({ db, q, vault, syncLimit }) {
     else await smtpSend(secret, account, message);
   }
 
-  return { syncAccount, setRead, trash, send };
+  return { syncAccount, setRead, trash, archive, getRaw, send };
 }

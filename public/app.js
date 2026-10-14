@@ -7,6 +7,8 @@ const composeDialog = document.querySelector('#compose-dialog');
 const composeForm = document.querySelector('#compose-form');
 const helpButton = document.querySelector('#help-button');
 const helpDialog = document.querySelector('#help-dialog');
+const messageActionMenu = document.querySelector('#message-action-menu');
+let actionMessageId = null;
 let accounts = [];
 let messages = [];
 const inboxFilters = { accountId: '', category: '', state: 'all' };
@@ -55,7 +57,9 @@ const demoApi = async (url, options = {}) => {
   if (messageMatch && method === 'GET') return structuredClone(demoMessages.find((item) => item.id === Number(messageMatch[1])));
   const readMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/read$/);
   if (readMatch) { const item = demoMessages.find((message) => message.id === Number(readMatch[1])); if (item) item.is_read = JSON.parse(options.body).read ? 1 : 0; return { ok: true }; }
-  if (messageMatch && method === 'DELETE') { demoMessages = demoMessages.filter((item) => item.id !== Number(messageMatch[1])); return null; }
+  const archiveMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/archive$/);
+  if (archiveMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(archiveMatch[1])); if (item) item.folder = 'ARCHIVE'; return { ok: true }; }
+  if (messageMatch && method === 'DELETE') { const item = demoMessages.find((message) => message.id === Number(messageMatch[1])); if (item) item.folder = 'TRASH'; return null; }
   if (url === '/api/sync') return demoAccounts.map((account) => ({ accountId: account.id, count: demoMessages.filter((message) => message.account_id === account.id).length, ok: true }));
   if (/^\/api\/accounts\/\d+\/sync$/.test(parsed.pathname)) return { count: demoMessages.length };
   if (url === '/api/send') return { ok: true };
@@ -157,16 +161,152 @@ function renderMessageList() {
     return;
   }
   list.innerHTML = messages.map((message) => `
-    <div class="message-row ${message.is_read ? '' : 'unread'}" data-id="${message.id}" tabindex="0" role="button">
-      <div class="row-top"><span class="sender">${escapeHtml(message.sender_name || message.sender_email)}</span><time class="date">${formatDate(message.received_at)}</time></div>
-      <div class="subject">${escapeHtml(message.subject)}</div><div class="snippet">${escapeHtml(message.snippet)}</div>
-      <span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span>
+    <div class="message-swipe" data-id="${message.id}">
+      <div class="swipe-action archive"><span>⇥</span>封存</div><div class="swipe-action delete">刪除<span>⌫</span></div>
+      <div class="message-row ${message.is_read ? '' : 'unread'}" data-id="${message.id}" tabindex="0" role="button" aria-label="${escapeHtml(message.subject)}">
+        <div class="row-top"><span class="sender">${escapeHtml(message.sender_name || message.sender_email)}</span><time class="date">${formatDate(message.received_at)}</time></div>
+        <div class="subject">${escapeHtml(message.subject)}</div><div class="snippet">${escapeHtml(message.snippet)}</div>
+        <span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span>
+      </div>
     </div>`).join('');
   list.querySelectorAll('.message-row').forEach((row) => {
-    const open = () => openMessage(Number(row.dataset.id));
+    const id = Number(row.dataset.id);
+    const open = () => { if (!row.dataset.ignoreClick) openMessage(id); };
     row.addEventListener('click', open);
     row.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') open(); });
+    bindMessageGestures(row, id);
   });
+}
+
+function hideMessageMenu() {
+  messageActionMenu.hidden = true;
+  actionMessageId = null;
+}
+
+function showMessageMenu(id, x, y) {
+  actionMessageId = id;
+  messageActionMenu.hidden = false;
+  const width = 224;
+  const height = 72;
+  messageActionMenu.style.left = `${Math.max(8, Math.min(x, innerWidth - width - 8))}px`;
+  messageActionMenu.style.top = `${Math.max(8, Math.min(y, innerHeight - height - 8))}px`;
+}
+
+async function archiveMessage(id) {
+  try {
+    await api(`/api/messages/${id}/archive`, { method: 'PATCH' });
+    showNotice('郵件已封存');
+    await renderRoute();
+  } catch (error) { showNotice(error.message, true); }
+}
+
+async function trashMessage(id) {
+  if (!confirm('確定將這封郵件移至垃圾桶？')) return false;
+  try {
+    await api(`/api/messages/${id}`, { method: 'DELETE' });
+    showNotice('郵件已移至垃圾桶');
+    await renderRoute();
+    return true;
+  } catch (error) { showNotice(error.message, true); return false; }
+}
+
+function bindMessageGestures(row, id) {
+  let startX = 0;
+  let startY = 0;
+  let deltaX = 0;
+  let tracking = false;
+  let moved = false;
+  let longPressed = false;
+  let pressTimer;
+  const reset = () => { row.classList.remove('dragging'); row.style.transform = ''; };
+  row.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    tracking = true; moved = false; longPressed = false; deltaX = 0;
+    startX = event.clientX; startY = event.clientY;
+    row.setPointerCapture?.(event.pointerId);
+    pressTimer = setTimeout(() => {
+      longPressed = true;
+      row.dataset.ignoreClick = 'true';
+      reset();
+      showMessageMenu(id, event.clientX, event.clientY);
+      navigator.vibrate?.(25);
+    }, 600);
+  });
+  row.addEventListener('pointermove', (event) => {
+    if (!tracking || longPressed) return;
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearTimeout(pressTimer);
+    if (Math.abs(dx) <= Math.abs(dy)) return;
+    moved = Math.abs(dx) > 10;
+    deltaX = Math.max(-150, Math.min(150, dx));
+    row.classList.add('dragging');
+    row.style.transform = `translateX(${deltaX}px)`;
+  });
+  const finish = async () => {
+    if (!tracking) return;
+    tracking = false;
+    clearTimeout(pressTimer);
+    if (longPressed) return;
+    if (moved) {
+      row.dataset.ignoreClick = 'true';
+      setTimeout(() => { delete row.dataset.ignoreClick; }, 350);
+    }
+    if (deltaX <= -88) {
+      row.style.transform = 'translateX(-100%)';
+      if (!await trashMessage(id)) reset();
+    } else if (deltaX >= 88) {
+      row.style.transform = 'translateX(100%)';
+      await archiveMessage(id);
+    } else reset();
+  };
+  row.addEventListener('pointerup', finish);
+  row.addEventListener('pointercancel', () => { tracking = false; clearTimeout(pressTimer); reset(); });
+  row.addEventListener('contextmenu', (event) => { event.preventDefault(); clearTimeout(pressTimer); showMessageMenu(id, event.clientX, event.clientY); });
+}
+
+function demoEml(message) {
+  const bytes = new TextEncoder().encode(message.subject || '(無主旨)');
+  let encoded = '';
+  for (const byte of bytes) encoded += String.fromCharCode(byte);
+  const headers = [
+    `From: ${message.sender_name ? `"${message.sender_name.replaceAll('"', '')}" ` : ''}<${message.sender_email}>`,
+    `To: ${(message.recipients || []).join(', ')}`,
+    `Date: ${new Date(message.received_at).toUTCString()}`,
+    `Subject: =?UTF-8?B?${btoa(encoded)}?=`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+  ];
+  return `${headers.join('\r\n')}\r\n\r\n${message.text_body || message.snippet || ''}`;
+}
+
+async function downloadMessage(id) {
+  hideMessageMenu();
+  try {
+    let blob;
+    let subject = `message-${id}`;
+    if (demoMode) {
+      const message = await api(`/api/messages/${id}`);
+      subject = message.subject;
+      blob = new Blob([demoEml(message)], { type: 'message/rfc822;charset=utf-8' });
+    } else {
+      const message = await api(`/api/messages/${id}`);
+      subject = message.subject;
+      const response = await fetch(`/api/messages/${id}/download`);
+      if (!response.ok) throw new Error('下載信件失敗');
+      blob = await response.blob();
+    }
+    const filename = `${String(subject || 'message').replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 80)}.eml`;
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    showNotice('信件已下載');
+  } catch (error) { showNotice(error.message, true); }
 }
 
 async function openMessage(id) {
@@ -326,6 +466,9 @@ helpButton.addEventListener('click', () => helpDialog.showModal());
 document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
 document.querySelector('#help-done').addEventListener('click', () => helpDialog.close());
 [composeDialog, helpDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+document.querySelector('#download-message').addEventListener('click', () => { if (actionMessageId) downloadMessage(actionMessageId); });
+document.addEventListener('pointerdown', (event) => { if (!messageActionMenu.hidden && !messageActionMenu.contains(event.target)) hideMessageMenu(); });
+window.addEventListener('scroll', hideMessageMenu, { passive: true });
 
 syncButton.addEventListener('click', async () => {
   setBusy(syncButton, true, '同步中…');

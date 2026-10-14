@@ -89,6 +89,18 @@ export async function gmailTrash(secret, redirectUri, remoteId) {
   await gmail.users.messages.trash({ userId: 'me', id: remoteId });
 }
 
+export async function gmailArchive(secret, redirectUri, remoteId) {
+  const gmail = google.gmail({ version: 'v1', auth: oauth(secret, redirectUri) });
+  await gmail.users.messages.modify({ userId: 'me', id: remoteId, requestBody: { removeLabelIds: ['INBOX'] } });
+}
+
+export async function gmailGetRaw(secret, redirectUri, remoteId) {
+  const gmail = google.gmail({ version: 'v1', auth: oauth(secret, redirectUri) });
+  const { data } = await gmail.users.messages.get({ userId: 'me', id: remoteId, format: 'raw' });
+  if (!data.raw) throw Object.assign(new Error('無法取得原始郵件'), { status: 404 });
+  return Buffer.from(data.raw.replaceAll('-', '+').replaceAll('_', '/'), 'base64');
+}
+
 function encodeMime({ from, to, cc, subject, text, html, inReplyTo }) {
   const safeMessageId = inReplyTo?.replace(/[\r\n]/g, '');
   const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`;

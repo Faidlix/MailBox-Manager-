@@ -96,6 +96,17 @@ app.patch('/api/messages/:id/read', asyncRoute(async (req, res) => {
   await mail.setRead(Number(req.params.id), Boolean(req.body.read));
   res.json({ ok: true });
 }));
+app.patch('/api/messages/:id/archive', asyncRoute(async (req, res) => {
+  await mail.archive(Number(req.params.id));
+  res.json({ ok: true });
+}));
+app.get('/api/messages/:id/download', asyncRoute(async (req, res) => {
+  const { raw, subject } = await mail.getRaw(Number(req.params.id));
+  const filename = `${String(subject || 'message').replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 80)}.eml`;
+  res.setHeader('Content-Type', 'message/rfc822');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.send(raw);
+}));
 app.delete('/api/messages/:id', asyncRoute(async (req, res) => {
   await mail.trash(Number(req.params.id));
   res.status(204).end();

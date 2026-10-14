@@ -74,6 +74,7 @@ export function openDatabase(filename) {
       updated_at=CURRENT_TIMESTAMP`),
     getMessage: db.prepare(`SELECT m.*, a.email account_email, a.provider FROM messages m JOIN accounts a ON a.id=m.account_id WHERE m.id=?`),
     setMessageRead: db.prepare('UPDATE messages SET is_read=?,updated_at=CURRENT_TIMESTAMP WHERE id=?'),
+    setMessageFolder: db.prepare('UPDATE messages SET folder=?,updated_at=CURRENT_TIMESTAMP WHERE id=?'),
     deleteMessage: db.prepare('DELETE FROM messages WHERE id=?'),
     listRules: db.prepare('SELECT * FROM rules ORDER BY id DESC'),
     insertRule: db.prepare('INSERT INTO rules(name,field,operator,value,category) VALUES(?,?,?,?,?)'),

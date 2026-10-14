@@ -70,6 +70,38 @@ export async function imapTrash(secret, uid) {
   } finally { await client.logout(); }
 }
 
+export async function imapArchive(secret, uid, folder = 'INBOX') {
+  const client = imapClient(secret);
+  await client.connect();
+  try {
+    const mailboxes = await client.list();
+    const archive = mailboxes.find((mailbox) => mailbox.specialUse === '\\Archive')
+      || mailboxes.find((mailbox) => /(^|\/)archive$/i.test(mailbox.path));
+    let destination = archive?.path;
+    if (!destination) {
+      destination = 'Archive';
+      await client.mailboxCreate(destination);
+    }
+    if (String(folder).toLocaleLowerCase() === destination.toLocaleLowerCase()) return;
+    const lock = await client.getMailboxLock(folder || secret.imap.folder || 'INBOX');
+    try { await client.messageMove(uid, destination, { uid: true }); }
+    finally { lock.release(); }
+  } finally { await client.logout(); }
+}
+
+export async function imapGetRaw(secret, uid, folder = 'INBOX') {
+  const client = imapClient(secret);
+  await client.connect();
+  try {
+    const lock = await client.getMailboxLock(folder || secret.imap.folder || 'INBOX');
+    try {
+      const message = await client.fetchOne(uid, { source: true }, { uid: true });
+      if (!message?.source) throw Object.assign(new Error('無法取得原始郵件'), { status: 404 });
+      return message.source;
+    } finally { lock.release(); }
+  } finally { await client.logout(); }
+}
+
 export async function smtpSend(secret, account, message) {
   const transport = nodemailer.createTransport({
     host: secret.smtp.host,
