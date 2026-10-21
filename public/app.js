@@ -13,6 +13,7 @@ const messageActionMenu = document.querySelector('#message-action-menu');
 let actionMessageId = null;
 let accounts = [];
 let messages = [];
+const selectedMessageIds = new Set();
 const QUICK_FOLDERS_KEY = 'mailbox-manager-quick-folders-v1';
 const loadQuickFolders = () => {
   try {
@@ -79,6 +80,10 @@ const demoApi = async (url, options = {}) => {
   if (messageMatch && method === 'GET') return structuredClone(demoMessages.find((item) => item.id === Number(messageMatch[1])));
   const readMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/read$/);
   if (readMatch) { const item = demoMessages.find((message) => message.id === Number(readMatch[1])); if (item) item.is_read = JSON.parse(options.body).read ? 1 : 0; return { ok: true }; }
+  const starMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/star$/);
+  if (starMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(starMatch[1])); if (item) item.is_starred = JSON.parse(options.body).starred ? 1 : 0; return { ok: true }; }
+  const moveMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/move$/);
+  if (moveMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(moveMatch[1])); if (item) item.folder = JSON.parse(options.body).folder; return { ok: true }; }
   const archiveMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/archive$/);
   if (archiveMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(archiveMatch[1])); if (item) item.folder = 'ARCHIVE'; return { ok: true }; }
   if (messageMatch && method === 'DELETE') { const item = demoMessages.find((message) => message.id === Number(messageMatch[1])); if (item) item.folder = 'TRASH'; return null; }
@@ -166,7 +171,14 @@ async function renderInbox() {
   const categories = [...new Set([...allMessages.map((message) => message.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   const states = [['all', '全部郵件'], ['unread', '未讀'], ['starred', '星號'], ['archive', '封存'], ['spam', '垃圾郵件'], ['trash', '垃圾桶']];
   const inboxContent = document.querySelector('#inbox-content');
-  const mailShell = () => '<div class="mail-layout"><div id="message-list" class="message-list card"></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>';
+  const mailShell = () => `<div class="mail-toolbar card" aria-label="信件操作列">
+    <label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label>
+    <span id="selected-count" class="selected-count">未選取</span>
+    <button id="bulk-star" class="toolbar-action" type="button" disabled><span aria-hidden="true">★</span> 星號</button>
+    <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled><span aria-hidden="true">↪</span> 搬移信件</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-move-folder="INBOX">收件匣</button><button type="button" data-move-folder="ARCHIVE">封存</button><button type="button" data-move-folder="SPAM">垃圾郵件</button><button type="button" data-move-folder="TRASH">垃圾桶</button></div></div>
+    <button id="bulk-spam" class="toolbar-action" type="button" disabled><span aria-hidden="true">!</span> 垃圾信件</button>
+    <div class="toolbar-menu-wrap"><button id="bulk-trash" class="toolbar-action danger-action" type="button" disabled><span aria-hidden="true">⌫</span> 垃圾桶</button><div id="trash-options" class="toolbar-menu trash-menu" hidden><button type="button" data-trash-mode="all"><b>全部信件</b><small>移除目前選取的全部信件</small></button><button type="button" data-trash-mode="unstarred"><b>排除星號</b><small>保留已加星的信件</small></button></div></div>
+  </div><div class="mail-layout"><div id="message-list" class="message-list card"></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>`;
   const setSettingsState = (active = '') => {
     document.querySelector('#account-settings').setAttribute('aria-pressed', String(active === 'accounts'));
     document.querySelector('#category-settings').setAttribute('aria-pressed', String(active === 'rules'));
@@ -176,14 +188,17 @@ async function renderInbox() {
     document.querySelector('#category-filters').innerHTML = `<button class="filter-chip ${inboxFilters.category ? '' : 'active'}" data-category="">所有分類</button>${categories.map((category) => `<button class="filter-chip ${inboxFilters.category === category ? 'active' : ''}" data-category="${escapeHtml(category)}"><span class="chip-dot"></span>${escapeHtml(category)}</button>`).join('')}`;
     document.querySelector('#mail-filters').innerHTML = states.map(([value, label]) => `<button class="filter-chip ${inboxFilters.state === value ? 'active' : ''}" data-state="${value}">${label}</button>`).join('');
   };
+  inboxContent.innerHTML = mailShell();
+  bindBulkToolbar();
   renderFilters();
   const update = async () => {
-    if (!document.querySelector('#message-list')) inboxContent.innerHTML = mailShell();
+    if (!document.querySelector('#message-list')) { inboxContent.innerHTML = mailShell(); bindBulkToolbar(); }
     setSettingsState();
     const search = document.querySelector('#search-input').value;
-    const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state });
+    const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state, limit: '1000' });
     document.querySelector('#message-list').innerHTML = '<div class="loading">載入郵件中…</div>';
     messages = await api(`/api/messages?${query}`);
+    selectedMessageIds.clear();
     renderMessageList();
   };
   let timer;
@@ -205,28 +220,103 @@ async function renderInbox() {
   await update();
 }
 
+function updateBulkToolbar() {
+  const selected = messages.filter((message) => selectedMessageIds.has(message.id));
+  const selectAll = document.querySelector('#select-all-messages');
+  if (!selectAll) return;
+  selectAll.checked = messages.length > 0 && selected.length === messages.length;
+  selectAll.indeterminate = selected.length > 0 && selected.length < messages.length;
+  document.querySelector('#selected-count').textContent = selected.length ? `已選 ${selected.length} 封` : '未選取';
+  document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0; });
+  document.querySelector('#bulk-star span').textContent = selected.length && selected.every((message) => message.is_starred) ? '☆' : '★';
+}
+
+async function toggleMessageStar(id) {
+  const message = messages.find((item) => item.id === id);
+  if (!message) return;
+  const starred = !message.is_starred;
+  try {
+    await api(`/api/messages/${id}/star`, { method: 'PATCH', body: JSON.stringify({ starred }) });
+    message.is_starred = starred ? 1 : 0;
+    const demoMessage = demoMode && demoMessages.find((item) => item.id === id);
+    if (demoMessage) demoMessage.is_starred = message.is_starred;
+    renderMessageList();
+    showNotice(starred ? '已加上星號' : '已移除星號');
+  } catch (error) { showNotice(error.message, true); }
+}
+
+async function moveSelectedMessages(folder, excludeStarred = false) {
+  const selected = messages.filter((message) => selectedMessageIds.has(message.id));
+  const targets = excludeStarred ? selected.filter((message) => !message.is_starred) : selected;
+  if (!targets.length) { showNotice(excludeStarred ? '選取的信件都有星號，未移動任何信件' : '請先選取信件', true); return; }
+  try {
+    await Promise.all(targets.map((message) => api(`/api/messages/${message.id}/move`, { method: 'PATCH', body: JSON.stringify({ folder }) })));
+    selectedMessageIds.clear();
+    const labels = { INBOX: '收件匣', ARCHIVE: '封存', SPAM: '垃圾郵件', TRASH: '垃圾桶' };
+    showNotice(`已將 ${targets.length} 封信件移至${labels[folder]}`);
+    await renderRoute();
+  } catch (error) { showNotice(error.message, true); }
+}
+
+function bindBulkToolbar() {
+  const selectAll = document.querySelector('#select-all-messages');
+  if (!selectAll) return;
+  selectAll.addEventListener('change', () => {
+    selectedMessageIds.clear();
+    if (selectAll.checked) messages.forEach((message) => selectedMessageIds.add(message.id));
+    renderMessageList();
+  });
+  document.querySelector('#bulk-star').addEventListener('click', async () => {
+    const selected = messages.filter((message) => selectedMessageIds.has(message.id));
+    const starred = !selected.every((message) => message.is_starred);
+    try {
+      await Promise.all(selected.map((message) => api(`/api/messages/${message.id}/star`, { method: 'PATCH', body: JSON.stringify({ starred }) })));
+      selected.forEach((message) => { message.is_starred = starred ? 1 : 0; });
+      renderMessageList();
+      showNotice(starred ? '已為選取信件加上星號' : '已移除選取信件的星號');
+    } catch (error) { showNotice(error.message, true); }
+  });
+  const moveMenu = document.querySelector('#move-options');
+  const trashMenu = document.querySelector('#trash-options');
+  document.querySelector('#bulk-move').addEventListener('click', () => { moveMenu.hidden = !moveMenu.hidden; trashMenu.hidden = true; });
+  document.querySelector('#bulk-trash').addEventListener('click', () => { trashMenu.hidden = !trashMenu.hidden; moveMenu.hidden = true; });
+  moveMenu.querySelectorAll('[data-move-folder]').forEach((button) => button.addEventListener('click', () => { moveMenu.hidden = true; moveSelectedMessages(button.dataset.moveFolder); }));
+  trashMenu.querySelectorAll('[data-trash-mode]').forEach((button) => button.addEventListener('click', () => { trashMenu.hidden = true; moveSelectedMessages('TRASH', button.dataset.trashMode === 'unstarred'); }));
+  document.querySelector('#bulk-spam').addEventListener('click', () => moveSelectedMessages('SPAM'));
+  updateBulkToolbar();
+}
+
 function renderMessageList() {
   const list = document.querySelector('#message-list');
   if (!messages.length) {
     list.innerHTML = `<div class="loading"><b>目前沒有郵件</b><p>${accounts.length ? '按「同步全部」取得最新郵件。' : '先到「信箱帳號」連線一個帳號。'}</p></div>`;
+    updateBulkToolbar();
     return;
   }
   list.innerHTML = messages.map((message) => `
     <div class="message-swipe" data-id="${message.id}">
       <div class="swipe-action archive"><span>⇥</span>封存</div><div class="swipe-action delete">刪除<span>⌫</span></div>
-      <div class="message-row ${message.is_read ? '' : 'unread'}" data-id="${message.id}" tabindex="0" role="button" aria-label="${escapeHtml(message.subject)}">
-        <div class="row-top"><span class="sender">${escapeHtml(message.sender_name || message.sender_email)}</span><time class="date">${formatDate(message.received_at)}</time></div>
+      <div class="message-row ${message.is_read ? '' : 'unread'} ${selectedMessageIds.has(message.id) ? 'batch-selected' : ''}" data-id="${message.id}" tabindex="0" role="button" aria-label="${escapeHtml(message.subject)}">
+        <div class="message-leading"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button></div>
+        <div class="message-summary"><div class="row-top"><span class="sender">${escapeHtml(message.sender_name || message.sender_email)}</span><time class="date">${formatDate(message.received_at)}</time></div>
         <div class="subject">${escapeHtml(message.subject)}</div><div class="snippet">${escapeHtml(message.snippet)}</div>
-        <span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span>
+        <span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span></div>
       </div>
     </div>`).join('');
   list.querySelectorAll('.message-row').forEach((row) => {
     const id = Number(row.dataset.id);
-    const open = () => { if (!row.dataset.ignoreClick) openMessage(id); };
+    const open = (event) => { if (!row.dataset.ignoreClick && !event?.target.closest('button,input')) openMessage(id); };
     row.addEventListener('click', open);
     row.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') open(); });
+    row.querySelector('.message-select').addEventListener('change', (event) => {
+      if (event.currentTarget.checked) selectedMessageIds.add(id); else selectedMessageIds.delete(id);
+      row.classList.toggle('batch-selected', event.currentTarget.checked);
+      updateBulkToolbar();
+    });
+    row.querySelector('.message-star').addEventListener('click', () => toggleMessageStar(id));
     bindMessageGestures(row, id);
   });
+  updateBulkToolbar();
 }
 
 function hideMessageMenu() {
@@ -272,7 +362,7 @@ function bindMessageGestures(row, id) {
   let rowWidth = 0;
   let pressTimer;
   const swipe = row.closest('.message-swipe');
-  const reset = () => { row.classList.remove('dragging'); row.style.transform = ''; swipe.style.removeProperty('--swipe-progress'); };
+  const reset = () => { row.classList.remove('dragging'); row.style.transform = ''; swipe.classList.remove('swipe-left', 'swipe-right'); swipe.style.removeProperty('--swipe-progress'); };
   const commit = async (direction) => {
     if (committed) return;
     committed = true;
@@ -287,6 +377,7 @@ function bindMessageGestures(row, id) {
   };
   row.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
+    if (event.target.closest('button,input')) return;
     tracking = true; moved = false; longPressed = false; committed = false; deltaX = 0; rowWidth = row.getBoundingClientRect().width;
     startX = event.clientX; startY = event.clientY;
     row.setPointerCapture?.(event.pointerId);
@@ -306,6 +397,8 @@ function bindMessageGestures(row, id) {
     if (Math.abs(dx) <= Math.abs(dy)) return;
     moved = Math.abs(dx) > 10;
     deltaX = Math.max(-rowWidth, Math.min(rowWidth, dx));
+    swipe.classList.toggle('swipe-left', deltaX < 0);
+    swipe.classList.toggle('swipe-right', deltaX > 0);
     row.classList.add('dragging');
     row.style.transform = `translateX(${deltaX}px)`;
     const actionThreshold = rowWidth * 0.75;

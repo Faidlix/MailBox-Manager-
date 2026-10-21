@@ -56,6 +56,32 @@ export async function imapSetRead(secret, uid, read) {
   } finally { await client.logout(); }
 }
 
+export async function imapSetStarred(secret, uid, starred, folder = 'INBOX') {
+  const client = imapClient(secret);
+  await client.connect();
+  try {
+    const lock = await client.getMailboxLock(folder || secret.imap.folder || 'INBOX');
+    try { await (starred ? client.messageFlagsAdd(uid, ['\\Flagged'], { uid: true }) : client.messageFlagsRemove(uid, ['\\Flagged'], { uid: true })); }
+    finally { lock.release(); }
+  } finally { await client.logout(); }
+}
+
+export async function imapMove(secret, uid, sourceFolder, targetFolder) {
+  const client = imapClient(secret);
+  await client.connect();
+  try {
+    const mailboxes = await client.list();
+    const specialUse = targetFolder === 'SPAM' ? '\\Junk' : targetFolder === 'TRASH' ? '\\Trash' : targetFolder === 'ARCHIVE' ? '\\Archive' : '\\Inbox';
+    let destination = mailboxes.find((mailbox) => mailbox.specialUse === specialUse)?.path;
+    if (!destination) destination = targetFolder === 'INBOX' ? 'INBOX' : targetFolder === 'SPAM' ? 'Junk' : targetFolder === 'TRASH' ? 'Trash' : 'Archive';
+    if (!mailboxes.some((mailbox) => mailbox.path === destination) && destination !== 'INBOX') await client.mailboxCreate(destination);
+    if (String(sourceFolder).toLocaleLowerCase() === destination.toLocaleLowerCase()) return;
+    const lock = await client.getMailboxLock(sourceFolder || secret.imap.folder || 'INBOX');
+    try { await client.messageMove(uid, destination, { uid: true }); }
+    finally { lock.release(); }
+  } finally { await client.logout(); }
+}
+
 export async function imapTrash(secret, uid) {
   const client = imapClient(secret);
   await client.connect();

@@ -74,6 +74,7 @@ export function openDatabase(filename) {
       updated_at=CURRENT_TIMESTAMP`),
     getMessage: db.prepare(`SELECT m.*, a.email account_email, a.provider FROM messages m JOIN accounts a ON a.id=m.account_id WHERE m.id=?`),
     setMessageRead: db.prepare('UPDATE messages SET is_read=?,updated_at=CURRENT_TIMESTAMP WHERE id=?'),
+    setMessageStarred: db.prepare('UPDATE messages SET is_starred=?,updated_at=CURRENT_TIMESTAMP WHERE id=?'),
     setMessageFolder: db.prepare('UPDATE messages SET folder=?,updated_at=CURRENT_TIMESTAMP WHERE id=?'),
     deleteMessage: db.prepare('DELETE FROM messages WHERE id=?'),
     listRules: db.prepare('SELECT * FROM rules ORDER BY id DESC'),
@@ -101,7 +102,7 @@ export function listMessages(db, filters = {}) {
     where.push(`(m.subject LIKE :search ESCAPE '\\' OR m.sender_name LIKE :search ESCAPE '\\' OR m.sender_email LIKE :search ESCAPE '\\' OR m.snippet LIKE :search ESCAPE '\\')`);
     params.search = `%${String(filters.search).replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
   }
-  const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 500);
+  const limit = Math.min(Math.max(Number(filters.limit) || 1000, 1), 1000);
   const sql = `SELECT m.id,m.account_id,m.remote_id,m.sender_name,m.sender_email,m.subject,m.snippet,m.received_at,
     m.folder,m.is_read,m.is_starred,m.has_attachments,m.category,a.email account_email,a.provider
     FROM messages m JOIN accounts a ON a.id=m.account_id

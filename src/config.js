@@ -5,7 +5,7 @@ export const config = {
   port: Number(process.env.PORT || 4141),
   dataDir: path.resolve('data'),
   dbPath: process.env.MAILBOX_DB_PATH || path.resolve('data', 'mailbox.db'),
-  syncLimit: 200,
+  syncLimit: Math.min(Math.max(Number(process.env.SYNC_LIMIT || 1000), 1), 1000),
 };
 
 export const googleRedirectUri = `http://${config.host}:${config.port}/api/oauth/google/callback`;

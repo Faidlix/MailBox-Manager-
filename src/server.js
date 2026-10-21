@@ -96,6 +96,14 @@ app.patch('/api/messages/:id/read', asyncRoute(async (req, res) => {
   await mail.setRead(Number(req.params.id), Boolean(req.body.read));
   res.json({ ok: true });
 }));
+app.patch('/api/messages/:id/star', asyncRoute(async (req, res) => {
+  await mail.setStarred(Number(req.params.id), Boolean(req.body.starred));
+  res.json({ ok: true });
+}));
+app.patch('/api/messages/:id/move', asyncRoute(async (req, res) => {
+  await mail.move(Number(req.params.id), String(req.body.folder || '').toUpperCase());
+  res.json({ ok: true });
+}));
 app.patch('/api/messages/:id/archive', asyncRoute(async (req, res) => {
   await mail.archive(Number(req.params.id));
   res.json({ ok: true });

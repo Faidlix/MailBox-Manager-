@@ -70,9 +70,15 @@ function mapMessage(data) {
 export async function gmailSync(secret, redirectUri, limit) {
   const auth = oauth(secret, redirectUri);
   const gmail = google.gmail({ version: 'v1', auth });
-  const list = await gmail.users.messages.list({ userId: 'me', labelIds: ['INBOX'], maxResults: limit });
+  const items = [];
+  let pageToken;
+  do {
+    const list = await gmail.users.messages.list({ userId: 'me', labelIds: ['INBOX'], maxResults: Math.min(500, limit - items.length), pageToken });
+    items.push(...(list.data.messages || []));
+    pageToken = list.data.nextPageToken || undefined;
+  } while (pageToken && items.length < limit);
   const messages = [];
-  for (const item of list.data.messages || []) {
+  for (const item of items.slice(0, limit)) {
     const { data } = await gmail.users.messages.get({ userId: 'me', id: item.id, format: 'full' });
     messages.push(mapMessage(data));
   }
@@ -82,6 +88,22 @@ export async function gmailSync(secret, redirectUri, limit) {
 export async function gmailSetRead(secret, redirectUri, remoteId, read) {
   const gmail = google.gmail({ version: 'v1', auth: oauth(secret, redirectUri) });
   await gmail.users.messages.modify({ userId: 'me', id: remoteId, requestBody: read ? { removeLabelIds: ['UNREAD'] } : { addLabelIds: ['UNREAD'] } });
+}
+
+export async function gmailSetStarred(secret, redirectUri, remoteId, starred) {
+  const gmail = google.gmail({ version: 'v1', auth: oauth(secret, redirectUri) });
+  await gmail.users.messages.modify({ userId: 'me', id: remoteId, requestBody: starred ? { addLabelIds: ['STARRED'] } : { removeLabelIds: ['STARRED'] } });
+}
+
+export async function gmailMove(secret, redirectUri, remoteId, folder) {
+  const gmail = google.gmail({ version: 'v1', auth: oauth(secret, redirectUri) });
+  if (folder === 'TRASH') return gmail.users.messages.trash({ userId: 'me', id: remoteId });
+  const requestBody = folder === 'INBOX'
+    ? { addLabelIds: ['INBOX'], removeLabelIds: ['SPAM', 'TRASH'] }
+    : folder === 'SPAM'
+      ? { addLabelIds: ['SPAM'], removeLabelIds: ['INBOX'] }
+      : { removeLabelIds: ['INBOX', 'SPAM'] };
+  await gmail.users.messages.modify({ userId: 'me', id: remoteId, requestBody });
 }
 
 export async function gmailTrash(secret, redirectUri, remoteId) {

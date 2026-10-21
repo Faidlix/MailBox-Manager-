@@ -1,7 +1,7 @@
 import { googleRedirectUri } from './config.js';
 import { applyRules } from './rules.js';
-import { gmailArchive, gmailGetRaw, gmailSend, gmailSetRead, gmailSync, gmailTrash } from './providers/gmail.js';
-import { imapArchive, imapGetRaw, imapSetRead, imapSync, imapTrash, smtpSend } from './providers/imap.js';
+import { gmailArchive, gmailGetRaw, gmailMove, gmailSend, gmailSetRead, gmailSetStarred, gmailSync, gmailTrash } from './providers/gmail.js';
+import { imapArchive, imapGetRaw, imapMove, imapSetRead, imapSetStarred, imapSync, imapTrash, smtpSend } from './providers/imap.js';
 
 export function createMailService({ db, q, vault, syncLimit }) {
   const secretFor = (account) => vault.open(account.secret);
@@ -56,6 +56,28 @@ export function createMailService({ db, q, vault, syncLimit }) {
     q.setMessageFolder.run('TRASH', messageId);
   }
 
+  async function setStarred(messageId, starred) {
+    const message = q.getMessage.get(messageId);
+    if (!message) throw Object.assign(new Error('找不到郵件'), { status: 404 });
+    const account = q.getAccount.get(message.account_id);
+    const secret = secretFor(account);
+    if (account.provider === 'gmail') await gmailSetStarred(secret, googleRedirectUri, message.remote_id, starred);
+    else await imapSetStarred(secret, message.remote_id, starred, message.folder);
+    q.setMessageStarred.run(Number(starred), messageId);
+  }
+
+  async function move(messageId, folder) {
+    const allowed = ['INBOX', 'ARCHIVE', 'SPAM', 'TRASH'];
+    if (!allowed.includes(folder)) throw Object.assign(new Error('不支援的信件位置'), { status: 400 });
+    const message = q.getMessage.get(messageId);
+    if (!message) throw Object.assign(new Error('找不到郵件'), { status: 404 });
+    const account = q.getAccount.get(message.account_id);
+    const secret = secretFor(account);
+    if (account.provider === 'gmail') await gmailMove(secret, googleRedirectUri, message.remote_id, folder);
+    else await imapMove(secret, message.remote_id, message.folder, folder);
+    q.setMessageFolder.run(folder, messageId);
+  }
+
   async function archive(messageId) {
     const message = q.getMessage.get(messageId);
     if (!message) throw Object.assign(new Error('找不到郵件'), { status: 404 });
@@ -85,5 +107,5 @@ export function createMailService({ db, q, vault, syncLimit }) {
     else await smtpSend(secret, account, message);
   }
 
-  return { syncAccount, setRead, trash, archive, getRaw, send };
+  return { syncAccount, setRead, setStarred, move, trash, archive, getRaw, send };
 }
