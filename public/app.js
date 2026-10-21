@@ -793,6 +793,12 @@ document.querySelector('#help-done').addEventListener('click', () => helpDialog.
 [composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
 filterDrawerToggle.addEventListener('click', () => setFilterDrawer(!document.body.classList.contains('filters-open')));
 filterDrawerBackdrop.addEventListener('click', () => setFilterDrawer(false));
+document.addEventListener('pointerdown', (event) => {
+  if (!document.body.classList.contains('filters-open')) return;
+  const drawer = document.querySelector('#inbox-filters');
+  if (drawer?.contains(event.target) || filterDrawerToggle.contains(event.target)) return;
+  setFilterDrawer(false);
+});
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && document.body.classList.contains('filters-open')) setFilterDrawer(false); });
 document.querySelector('#download-message').addEventListener('click', () => { if (actionMessageId) downloadMessage(actionMessageId); });
 document.addEventListener('pointerdown', (event) => { if (!messageActionMenu.hidden && !messageActionMenu.contains(event.target)) hideMessageMenu(); });
