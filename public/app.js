@@ -20,7 +20,6 @@ let actionMessageId = null;
 let accounts = [];
 let messages = [];
 const selectedMessageIds = new Set();
-const collapsedDateGroups = new Set();
 const QUICK_FOLDERS_KEY = 'mailbox-manager-quick-folders-v1';
 const loadQuickFolders = () => {
   try {
@@ -177,7 +176,9 @@ function messageDateKey(value) {
 }
 
 function formatMessageGroupDate(value) {
-  return new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }).format(messageDate(value));
+  const date = messageDate(value);
+  const weekday = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()];
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}（${weekday}）`;
 }
 
 function accountOptions(selected = '') {
@@ -245,7 +246,7 @@ async function renderInbox() {
   const inboxContent = document.querySelector('#inbox-content');
   const mailShell = () => `<div class="mail-toolbar card" aria-label="信件操作列">
     <label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label>
-    <button id="message-filter" class="toolbar-action" type="button"><span aria-hidden="true">☷</span> 篩選</button>
+    <button id="message-filter" class="toolbar-action" type="button"><span aria-hidden="true">☷</span> 篩選</button><button id="message-filter-reset" class="toolbar-action filter-reset" type="button" aria-label="重設全部篩選" title="重設全部篩選" hidden>×</button>
     <span id="selected-count" class="selected-count">未選取</span>
     <button id="bulk-star" class="toolbar-action" type="button" disabled><span aria-hidden="true">★</span> 星號</button>
     <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled><span aria-hidden="true">↪</span> 搬移信件</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-move-folder="INBOX">收件匣</button><button type="button" data-move-folder="ARCHIVE">封存</button><button type="button" data-move-folder="SPAM">垃圾郵件</button><button type="button" data-move-folder="TRASH">垃圾桶</button></div></div>
@@ -303,10 +304,11 @@ function updateBulkToolbar() {
   selectAll.checked = messages.length > 0 && selected.length === messages.length;
   selectAll.indeterminate = selected.length > 0 && selected.length < messages.length;
   document.querySelector('#selected-count').textContent = selected.length ? `已選 ${selected.length} 封` : `共 ${messages.length} 封`;
-  const filterActive = Object.values(messageViewFilter).some(Boolean);
+  const filterActive = Object.values(messageViewFilter).some(Boolean) || Boolean(inboxFilters.accountId || inboxFilters.category || inboxFilters.state !== 'all' || document.querySelector('#search-input')?.value);
   document.querySelector('#message-filter').classList.toggle('active', filterActive);
   document.querySelector('#message-filter').setAttribute('aria-pressed', String(filterActive));
-  document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && !['bulk-trash', 'message-filter'].includes(button.id); });
+  document.querySelector('#message-filter-reset').hidden = !filterActive;
+  document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && !['bulk-trash', 'message-filter', 'message-filter-reset'].includes(button.id); });
   document.querySelector('#bulk-star span').textContent = selected.length && selected.every((message) => message.is_starred) ? '☆' : '★';
   document.querySelectorAll('.date-select').forEach((checkbox) => {
     const group = messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey);
@@ -371,6 +373,15 @@ function bindBulkToolbar() {
     renderMessageList();
   });
   document.querySelector('#message-filter').addEventListener('click', openMessageFilterDialog);
+  document.querySelector('#message-filter-reset').addEventListener('click', async () => {
+    Object.assign(messageViewFilter, { fromDate: '', toDate: '', sender: '', subject: '' });
+    Object.assign(inboxFilters, { accountId: '', category: '', state: 'all' });
+    const search = document.querySelector('#search-input');
+    if (search) search.value = '';
+    selectedMessageIds.clear();
+    await renderRoute();
+    showNotice('已重設全部篩選');
+  });
   document.querySelector('#bulk-star').addEventListener('click', async () => {
     const selected = messages.filter((message) => selectedMessageIds.has(message.id));
     const starred = !selected.every((message) => message.is_starred);
@@ -413,22 +424,18 @@ function renderMessageList() {
     <div class="message-swipe" data-id="${message.id}">
       <div class="swipe-action archive"><span>⇥</span>封存</div><div class="swipe-action delete">刪除<span>⌫</span></div>
       <div class="message-row ${message.is_read ? '' : 'unread'} ${selectedMessageIds.has(message.id) ? 'batch-selected' : ''}" data-id="${message.id}" tabindex="0" role="button" aria-label="${escapeHtml(message.subject)}">
-        <div class="message-leading"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"></div>
-        <div class="message-summary"><div class="row-top"><div class="subject">${escapeHtml(message.subject)}</div><time class="date">${formatDate(message.received_at)}</time></div>
-        <div class="snippet">${escapeHtml(message.snippet)}</div>
-        <div class="message-footer"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button><span class="sender">${escapeHtml(message.sender_name || '未命名寄件者')}</span><span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span></div></div>
+        <div class="message-primary-line"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button><div class="subject">${escapeHtml(message.subject)}</div><time class="date">${formatDate(message.received_at)}</time></div>
+        <div class="message-secondary-line"><span class="snippet">${escapeHtml(message.snippet)}</span><button class="sender message-source-filter" type="button" data-sender-filter="${escapeHtml(message.sender_name || message.sender_email)}">${escapeHtml(message.sender_name || message.sender_email)}</button><button class="category-pill message-category-filter" type="button" data-category-filter="${escapeHtml(message.category)}">${escapeHtml(message.category)}</button></div>
       </div>
     </div>`;
   list.innerHTML = [...groups.entries()].map(([key, group]) => {
-    const collapsed = collapsedDateGroups.has(key);
-    return `<section class="message-date-group ${collapsed ? 'collapsed' : ''}" data-date-key="${key}">
+    return `<section class="message-date-group" data-date-key="${key}">
       <div class="date-divider">
         <input class="date-select" type="checkbox" data-date-key="${key}" aria-label="選取 ${formatMessageGroupDate(group[0].received_at)} 的全部信件">
-        <button class="date-collapse" type="button" data-date-key="${key}" aria-expanded="${!collapsed}" aria-label="${collapsed ? '展開' : '收合'} ${formatMessageGroupDate(group[0].received_at)} 的信件"><span aria-hidden="true">⌄</span></button>
         <span class="date-divider-line" aria-hidden="true"></span>
-        <time datetime="${key}">${formatMessageGroupDate(group[0].received_at)}</time>
+        <button class="date-group-filter" type="button" data-date-filter="${key}" aria-label="只顯示 ${formatMessageGroupDate(group[0].received_at)} 的信件"><time datetime="${key}">${formatMessageGroupDate(group[0].received_at)}</time></button>
       </div>
-      <div class="date-messages" ${collapsed ? 'hidden' : ''}>${group.map(messageRow).join('')}</div>
+      <div class="date-messages">${group.map(messageRow).join('')}</div>
     </section>`;
   }).join('');
   list.querySelectorAll('.date-select').forEach((checkbox) => checkbox.addEventListener('change', () => {
@@ -437,10 +444,28 @@ function renderMessageList() {
     });
     renderMessageList();
   }));
-  list.querySelectorAll('.date-collapse').forEach((button) => button.addEventListener('click', () => {
-    const key = button.dataset.dateKey;
-    if (collapsedDateGroups.has(key)) collapsedDateGroups.delete(key); else collapsedDateGroups.add(key);
+  list.querySelectorAll('.message-source-filter').forEach((button) => button.addEventListener('click', () => {
+    const sender = button.dataset.senderFilter;
+    messageViewFilter.sender = messageViewFilter.sender === sender ? '' : sender;
+    messages = applyMessageViewFilter(loadedMessages);
+    selectedMessageIds.clear();
     renderMessageList();
+    showNotice(messageViewFilter.sender ? `只顯示「${sender}」的信件` : '已取消寄件來源篩選');
+  }));
+  list.querySelectorAll('.message-category-filter').forEach((button) => button.addEventListener('click', () => {
+    const category = inboxFilters.category === button.dataset.categoryFilter ? '' : button.dataset.categoryFilter;
+    const target = [...document.querySelectorAll('#category-filters [data-category]')].find((item) => item.dataset.category === category);
+    if (target) target.click();
+  }));
+  list.querySelectorAll('.date-group-filter').forEach((button) => button.addEventListener('click', () => {
+    const key = button.dataset.dateFilter;
+    const active = messageViewFilter.fromDate === key && messageViewFilter.toDate === key;
+    messageViewFilter.fromDate = active ? '' : key;
+    messageViewFilter.toDate = active ? '' : key;
+    messages = applyMessageViewFilter(loadedMessages);
+    selectedMessageIds.clear();
+    renderMessageList();
+    showNotice(active ? '已取消日期篩選' : `只顯示 ${button.textContent.trim()} 的信件`);
   }));
   list.querySelectorAll('.message-row').forEach((row) => {
     const id = Number(row.dataset.id);
