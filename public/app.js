@@ -9,6 +9,8 @@ const helpButton = document.querySelector('#help-button');
 const helpDialog = document.querySelector('#help-dialog');
 const quickFolderDialog = document.querySelector('#quick-folder-dialog');
 const quickFolderForm = document.querySelector('#quick-folder-form');
+const cleanupDialog = document.querySelector('#cleanup-dialog');
+const cleanupForm = document.querySelector('#cleanup-form');
 const messageActionMenu = document.querySelector('#message-action-menu');
 let actionMessageId = null;
 let accounts = [];
@@ -23,6 +25,7 @@ const loadQuickFolders = () => {
 };
 let quickFolders = loadQuickFolders();
 let quickFolderType = 'accounts';
+let cleanupMode = 'date';
 const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
 const inboxFilters = { accountId: '', category: '', state: 'all' };
 const demoMode = location.protocol === 'https:' || new URLSearchParams(location.search).has('demo');
@@ -38,6 +41,22 @@ let demoMessages = [
   { id: 5, account_id: 1, remote_id: 'demo-5', thread_id: 'demo-thread-5', folder: 'SPAM', sender_name: '優惠快報', sender_email: 'promo@unknown.example', recipients: ['personal.demo@gmail.com'], subject: '今日限定優惠', snippet: '系統已將這封郵件判定為垃圾郵件。', text_body: '此為垃圾郵件篩選介面展示。', html_body: '', received_at: new Date(Date.now() - 50 * 3600_000).toISOString(), is_read: 1, is_starred: 0, has_attachments: 0, category: '廣告', account_email: 'personal.demo@gmail.com', provider: 'gmail', labels: [] },
   { id: 6, account_id: 2, remote_id: 'demo-6', thread_id: 'demo-thread-6', folder: 'TRASH', sender_name: '購物通知', sender_email: 'order@shop.example', recipients: ['work.demo@yahoo.com'], subject: '已取消的訂單通知', snippet: '這封郵件位於垃圾桶。', text_body: '此為垃圾桶篩選介面展示。', html_body: '', received_at: new Date(Date.now() - 74 * 3600_000).toISOString(), is_read: 1, is_starred: 0, has_attachments: 0, category: '購物', account_email: 'work.demo@yahoo.com', provider: 'imap', labels: [] },
 ];
+const demoTemplates = [
+  ['銀行', '遠山銀行', 'bank@demo.example', '帳戶交易通知', '您的帳戶有一筆新的交易紀錄。'],
+  ['Steam', 'Steam', 'noreply@steampowered.com', '願望清單遊戲特價通知', '您追蹤的遊戲推出新的限時優惠。'],
+  ['專案', '專案小組', 'project@company.example', '專案進度更新', '本週里程碑與待辦事項已更新。'],
+  ['購物', '購物平台', 'order@shop.example', '訂單配送進度', '您的訂單已有新的物流狀態。'],
+  ['帳單', '公共事業帳務中心', 'billing@utility.example', '本月電子帳單', '本月電子帳單已產生，請確認繳費期限。'],
+  ['社群', '社群通知', 'updates@social.example', '您有新的互動通知', '朋友在您的貼文中留下了新回覆。'],
+  ['工作', '人資系統', 'hr@company.example', '公司內部公告', '請查看本週最新的內部公告內容。'],
+  ['旅遊', '旅程服務', 'booking@travel.example', '行程提醒與資訊更新', '您的預訂行程有新的提醒資訊。'],
+];
+for (let id = 7; id <= 1000; id += 1) {
+  const [category, senderName, senderEmail, subject, snippet] = demoTemplates[(id - 7) % demoTemplates.length];
+  const accountId = id % 2 ? 1 : 2;
+  const folder = id % 211 === 0 ? 'TRASH' : id % 157 === 0 ? 'SPAM' : id % 43 === 0 ? 'ARCHIVE' : 'INBOX';
+  demoMessages.push({ id, account_id: accountId, remote_id: `demo-${id}`, thread_id: `demo-thread-${id}`, folder, sender_name: senderName, sender_email: senderEmail, recipients: [accountId === 1 ? 'personal.demo@gmail.com' : 'work.demo@yahoo.com'], subject: `${subject} #${String(id).padStart(4, '0')}`, snippet, text_body: `您好：\n\n${snippet}\n\n這是第 ${id} 封介面壓力測試範例郵件。`, html_body: '', received_at: new Date(Date.now() - id * 5 * 60_000).toISOString(), is_read: id % 3 === 0 ? 0 : 1, is_starred: id % 17 === 0 ? 1 : 0, has_attachments: id % 29 === 0 ? 1 : 0, category, account_email: accountId === 1 ? 'personal.demo@gmail.com' : 'work.demo@yahoo.com', provider: accountId === 1 ? 'gmail' : 'imap', labels: [] });
+}
 let demoRules = [
   { id: 1, name: '銀行帳務', field: 'sender', operator: 'contains', value: 'bank', category: '帳單', enabled: 1 },
   { id: 2, name: '遊戲通知', field: 'sender', operator: 'contains', value: 'Steam', category: '遊戲', enabled: 1 },
@@ -53,7 +72,6 @@ const toBase64 = (value = '') => {
 const wrapBase64 = (value) => value.match(/.{1,76}/g)?.join('\r\n') || '';
 const DEMO_MARK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="24" fill="#194c39"/><rect x="19" y="27" width="58" height="43" rx="5" fill="#fffefa"/><path d="m21 31 27 22 27-22" fill="none" stroke="#c9e667" stroke-width="7" stroke-linejoin="round"/></svg>';
 const demoHtml = (message) => `<!doctype html><html><body style="margin:0;background:#f3f4ee;font-family:Arial,'Noto Sans TC',sans-serif;color:#17231d"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4ee;padding:28px 12px"><tr><td align="center"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#fffefa;border:1px solid #dde1d8;border-radius:18px;overflow:hidden"><tr><td style="padding:24px 28px;background:#194c39;color:#fff"><img src="data:image/svg+xml;base64,${toBase64(DEMO_MARK_SVG)}" width="48" height="48" alt="MailBox Manager" style="display:block;margin-bottom:16px"><div style="font-size:13px;letter-spacing:2px;color:#c9e667;font-weight:bold">MAILBOX MANAGER DEMO</div><h1 style="margin:8px 0 0;font-size:27px;line-height:1.3;color:#fff">${escapeHtml(message.subject)}</h1></td></tr><tr><td style="padding:28px;font-size:16px;line-height:1.8"><p style="margin-top:0;color:#66736b">寄件者：${escapeHtml(message.sender_name || message.sender_email)}</p>${String(message.text_body || message.snippet || '').split(/\n\n+/).map((paragraph) => `<p>${escapeHtml(paragraph).replaceAll('\n', '<br>')}</p>`).join('')}<div style="margin-top:28px;padding:14px 16px;border-radius:10px;background:#eef2e9;color:#365747;font-size:13px">此為介面展示郵件；下載後可由支援 EML 的郵件程式開啟。</div></td></tr></table></td></tr></table></body></html>`;
-demoMessages = demoMessages.map((message) => ({ ...message, html_body: demoHtml(message) }));
 const demoApi = async (url, options = {}) => {
   await new Promise((resolve) => setTimeout(resolve, 180));
   const method = options.method || 'GET';
@@ -73,11 +91,14 @@ const demoApi = async (url, options = {}) => {
     if (state === 'archive') result = result.filter((item) => item.folder === 'ARCHIVE');
     if (state === 'spam') result = result.filter((item) => item.folder === 'SPAM');
     if (state === 'trash') result = result.filter((item) => item.folder === 'TRASH');
-    if (state === 'all') result = result.filter((item) => !['SPAM', 'TRASH'].includes(item.folder));
-    return structuredClone(result);
+    const limit = Math.min(Math.max(Number(parsed.searchParams.get('limit')) || 1000, 1), 1000);
+    return structuredClone(result.slice(0, limit));
   }
   const messageMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)$/);
-  if (messageMatch && method === 'GET') return structuredClone(demoMessages.find((item) => item.id === Number(messageMatch[1])));
+  if (messageMatch && method === 'GET') {
+    const message = demoMessages.find((item) => item.id === Number(messageMatch[1]));
+    return structuredClone(message ? { ...message, html_body: message.html_body || demoHtml(message) } : null);
+  }
   const readMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/read$/);
   if (readMatch) { const item = demoMessages.find((message) => message.id === Number(readMatch[1])); if (item) item.is_read = JSON.parse(options.body).read ? 1 : 0; return { ok: true }; }
   const starMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/star$/);
@@ -177,7 +198,7 @@ async function renderInbox() {
     <button id="bulk-star" class="toolbar-action" type="button" disabled><span aria-hidden="true">★</span> 星號</button>
     <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled><span aria-hidden="true">↪</span> 搬移信件</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-move-folder="INBOX">收件匣</button><button type="button" data-move-folder="ARCHIVE">封存</button><button type="button" data-move-folder="SPAM">垃圾郵件</button><button type="button" data-move-folder="TRASH">垃圾桶</button></div></div>
     <button id="bulk-spam" class="toolbar-action" type="button" disabled><span aria-hidden="true">!</span> 垃圾信件</button>
-    <div class="toolbar-menu-wrap"><button id="bulk-trash" class="toolbar-action danger-action" type="button" disabled><span aria-hidden="true">⌫</span> 垃圾桶</button><div id="trash-options" class="toolbar-menu trash-menu" hidden><button type="button" data-trash-mode="all"><b>全部信件</b><small>移除目前選取的全部信件</small></button><button type="button" data-trash-mode="unstarred"><b>排除星號</b><small>保留已加星的信件</small></button></div></div>
+    <div class="toolbar-menu-wrap"><button id="bulk-trash" class="toolbar-action danger-action" type="button"><span aria-hidden="true">⌫</span> 垃圾桶</button><div id="trash-options" class="toolbar-menu trash-menu" hidden><button type="button" data-trash-mode="all"><b>全部信件</b><small>移除目前選取的全部信件</small></button><button type="button" data-trash-mode="unstarred"><b>排除星號</b><small>保留已加星的選取信件</small></button><button type="button" data-trash-mode="date"><b>指定日期之前</b><small>設定日期並清理較早的信件</small></button><button type="button" data-trash-mode="filter"><b>寄件者／關鍵字</b><small>依寄件者或信件內容條件清理</small></button></div></div>
   </div><div class="mail-layout"><div id="message-list" class="message-list card"></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>`;
   const setSettingsState = (active = '') => {
     document.querySelector('#account-settings').setAttribute('aria-pressed', String(active === 'accounts'));
@@ -226,8 +247,8 @@ function updateBulkToolbar() {
   if (!selectAll) return;
   selectAll.checked = messages.length > 0 && selected.length === messages.length;
   selectAll.indeterminate = selected.length > 0 && selected.length < messages.length;
-  document.querySelector('#selected-count').textContent = selected.length ? `已選 ${selected.length} 封` : '未選取';
-  document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0; });
+  document.querySelector('#selected-count').textContent = selected.length ? `已選 ${selected.length} 封` : `共 ${messages.length} 封`;
+  document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && button.id !== 'bulk-trash'; });
   document.querySelector('#bulk-star span').textContent = selected.length && selected.every((message) => message.is_starred) ? '☆' : '★';
 }
 
@@ -249,13 +270,32 @@ async function moveSelectedMessages(folder, excludeStarred = false) {
   const selected = messages.filter((message) => selectedMessageIds.has(message.id));
   const targets = excludeStarred ? selected.filter((message) => !message.is_starred) : selected;
   if (!targets.length) { showNotice(excludeStarred ? '選取的信件都有星號，未移動任何信件' : '請先選取信件', true); return; }
+  await moveMessages(targets, folder);
+}
+
+async function runInBatches(items, task, size = 20) {
+  for (let index = 0; index < items.length; index += size) await Promise.all(items.slice(index, index + size).map(task));
+}
+
+async function moveMessages(targets, folder) {
   try {
-    await Promise.all(targets.map((message) => api(`/api/messages/${message.id}/move`, { method: 'PATCH', body: JSON.stringify({ folder }) })));
+    await runInBatches(targets, (message) => api(`/api/messages/${message.id}/move`, { method: 'PATCH', body: JSON.stringify({ folder }) }));
     selectedMessageIds.clear();
     const labels = { INBOX: '收件匣', ARCHIVE: '封存', SPAM: '垃圾郵件', TRASH: '垃圾桶' };
     showNotice(`已將 ${targets.length} 封信件移至${labels[folder]}`);
     await renderRoute();
   } catch (error) { showNotice(error.message, true); }
+}
+
+function openCleanupDialog(mode) {
+  cleanupMode = mode;
+  cleanupForm.reset();
+  const byDate = mode === 'date';
+  document.querySelector('#cleanup-title').textContent = byDate ? '刪除指定日期之前的信件' : '依寄件者或關鍵字刪除';
+  document.querySelector('#cleanup-date-fields').hidden = !byDate;
+  document.querySelector('#cleanup-filter-fields').hidden = byDate;
+  document.querySelector('#cleanup-before-date').required = byDate;
+  cleanupDialog.showModal();
 }
 
 function bindBulkToolbar() {
@@ -270,7 +310,7 @@ function bindBulkToolbar() {
     const selected = messages.filter((message) => selectedMessageIds.has(message.id));
     const starred = !selected.every((message) => message.is_starred);
     try {
-      await Promise.all(selected.map((message) => api(`/api/messages/${message.id}/star`, { method: 'PATCH', body: JSON.stringify({ starred }) })));
+      await runInBatches(selected, (message) => api(`/api/messages/${message.id}/star`, { method: 'PATCH', body: JSON.stringify({ starred }) }));
       selected.forEach((message) => { message.is_starred = starred ? 1 : 0; });
       renderMessageList();
       showNotice(starred ? '已為選取信件加上星號' : '已移除選取信件的星號');
@@ -281,7 +321,12 @@ function bindBulkToolbar() {
   document.querySelector('#bulk-move').addEventListener('click', () => { moveMenu.hidden = !moveMenu.hidden; trashMenu.hidden = true; });
   document.querySelector('#bulk-trash').addEventListener('click', () => { trashMenu.hidden = !trashMenu.hidden; moveMenu.hidden = true; });
   moveMenu.querySelectorAll('[data-move-folder]').forEach((button) => button.addEventListener('click', () => { moveMenu.hidden = true; moveSelectedMessages(button.dataset.moveFolder); }));
-  trashMenu.querySelectorAll('[data-trash-mode]').forEach((button) => button.addEventListener('click', () => { trashMenu.hidden = true; moveSelectedMessages('TRASH', button.dataset.trashMode === 'unstarred'); }));
+  trashMenu.querySelectorAll('[data-trash-mode]').forEach((button) => button.addEventListener('click', () => {
+    trashMenu.hidden = true;
+    const mode = button.dataset.trashMode;
+    if (mode === 'date' || mode === 'filter') openCleanupDialog(mode);
+    else moveSelectedMessages('TRASH', mode === 'unstarred');
+  }));
   document.querySelector('#bulk-spam').addEventListener('click', () => moveSelectedMessages('SPAM'));
   updateBulkToolbar();
 }
@@ -597,7 +642,7 @@ async function renderRules() {
 function renderHelp() {
   title.textContent = '說明與免責聲明';
   view.innerHTML = `<div class="help">
-    <section class="card"><h2>開始使用</h2><ol><li>到「信箱帳號」加入 Gmail 或 Yahoo/IMAP 帳號。</li><li>按「同步全部」下載最近 200 封收件匣郵件的本機索引。</li><li>建立分類規則，下一次同步時自動分類。</li><li>刪除、已讀狀態與寄信會直接操作所選的遠端信箱。</li></ol><p>程式只監聽 <span class="code">127.0.0.1</span>。資料庫及加密金鑰位於專案的 <span class="code">data/</span> 目錄，已被 Git 忽略。</p></section>
+    <section class="card"><h2>開始使用</h2><ol><li>到「信箱帳號」加入 Gmail 或 Yahoo/IMAP 帳號。</li><li>按「同步全部」下載最近 1,000 封收件匣郵件的本機索引。</li><li>建立分類規則，下一次同步時自動分類。</li><li>刪除、已讀狀態與寄信會直接操作所選的遠端信箱。</li></ol><p>程式只監聽 <span class="code">127.0.0.1</span>。資料庫及加密金鑰位於專案的 <span class="code">data/</span> 目錄，已被 Git 忽略。</p></section>
     <section class="card"><h2>帳號安全</h2><p>Gmail 採用 OAuth 2.0，程式不會取得 Gmail 密碼。Yahoo 或一般 IMAP 帳號應使用服務商提供的應用程式密碼。請勿將 <span class="code">data/</span>、OAuth Client Secret 或應用程式密碼提交到 Git。</p><p>郵件中的 HTML 會在禁止腳本的隔離框架內顯示。開啟外部連結或下載附件前，仍應確認寄件者及網址。</p></section>
     <section class="card disclaimer"><h2>免責聲明</h2><p>MailBox Manager 是個人郵件管理工具，以「現狀」提供。使用者須自行確認 Google、Yahoo 及其他郵件服務商的服務條款、API 政策與帳號安全要求。</p><p>同步、標記已讀、寄送及刪除等操作可能直接變更遠端信箱。使用前請備份重要郵件並先以測試帳號驗證設定。開發者不保證郵件資料、同步結果、通知時效或第三方服務持續可用，亦不對誤刪、未送達、資料遺失、帳號限制、憑證外洩或任何直接與間接損失負責。</p><p>本工具不提供法律、財務或資安保證。若用於工作、受管制資料或多人環境，應先由組織管理者與專業人員完成權限、保存、隱私及合規審查。</p></section>
     <section class="card"><h2>目前範圍</h2><p>第一版支援 Gmail、Yahoo 與標準 IMAP/SMTP。LINE Bot、背景排程、附件管理及 Microsoft Graph 預留為後續功能。</p></section>
@@ -647,10 +692,33 @@ quickFolderForm.addEventListener('submit', async (event) => {
 });
 document.querySelector('#quick-folder-cancel').addEventListener('click', () => quickFolderDialog.close());
 document.querySelector('#quick-folder-close').addEventListener('click', () => quickFolderDialog.close());
+cleanupForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(cleanupForm));
+  let targets = [];
+  if (cleanupMode === 'date') {
+    const cutoff = new Date(`${data.beforeDate}T00:00:00`).getTime();
+    targets = messages.filter((message) => new Date(message.received_at).getTime() < cutoff);
+  } else {
+    const sender = String(data.sender || '').trim().toLocaleLowerCase();
+    const keyword = String(data.keyword || '').trim().toLocaleLowerCase();
+    if (!sender && !keyword) { showNotice('請輸入寄件者或信件關鍵字', true); return; }
+    targets = messages.filter((message) => {
+      const senderText = `${message.sender_name || ''} ${message.sender_email || ''}`.toLocaleLowerCase();
+      const contentText = `${message.subject || ''} ${message.snippet || ''}`.toLocaleLowerCase();
+      return (!sender || senderText.includes(sender)) && (!keyword || contentText.includes(keyword));
+    });
+  }
+  if (!targets.length) { showNotice('目前清單中沒有符合條件的信件', true); return; }
+  cleanupDialog.close();
+  await moveMessages(targets, 'TRASH');
+});
+document.querySelector('#cleanup-cancel').addEventListener('click', () => cleanupDialog.close());
+document.querySelector('#cleanup-close').addEventListener('click', () => cleanupDialog.close());
 helpButton.addEventListener('click', () => helpDialog.showModal());
 document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
 document.querySelector('#help-done').addEventListener('click', () => helpDialog.close());
-[composeDialog, helpDialog, quickFolderDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+[composeDialog, helpDialog, quickFolderDialog, cleanupDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
 document.querySelector('#download-message').addEventListener('click', () => { if (actionMessageId) downloadMessage(actionMessageId); });
 document.addEventListener('pointerdown', (event) => { if (!messageActionMenu.hidden && !messageActionMenu.contains(event.target)) hideMessageMenu(); });
 window.addEventListener('scroll', hideMessageMenu, { passive: true });

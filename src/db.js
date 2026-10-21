@@ -96,7 +96,6 @@ export function listMessages(db, filters = {}) {
   if (state === 'archive') where.push("m.folder='ARCHIVE'");
   if (state === 'spam') where.push("m.folder='SPAM'");
   if (state === 'trash') where.push("m.folder='TRASH'");
-  if (state === 'all') where.push("m.folder NOT IN ('SPAM','TRASH')");
   if (filters.category) { where.push('m.category=:category'); params.category = filters.category; }
   if (filters.search) {
     where.push(`(m.subject LIKE :search ESCAPE '\\' OR m.sender_name LIKE :search ESCAPE '\\' OR m.sender_email LIKE :search ESCAPE '\\' OR m.snippet LIKE :search ESCAPE '\\')`);

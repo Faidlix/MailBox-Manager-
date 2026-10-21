@@ -71,6 +71,15 @@
       <div class="form-actions"><button type="submit" class="primary">新增</button><button id="quick-folder-cancel" type="button" class="ghost">取消</button></div>
     </form>
   </dialog>
+  <dialog id="cleanup-dialog" class="app-dialog cleanup-dialog" aria-labelledby="cleanup-title">
+    <form id="cleanup-form" class="form-card">
+      <div class="dialog-heading"><div><p class="eyebrow">BULK CLEANUP</p><h2 id="cleanup-title">批次移至垃圾桶</h2></div><button class="dialog-x" id="cleanup-close" type="button" aria-label="關閉批次刪除視窗">×</button></div>
+      <div id="cleanup-date-fields"><label>刪除此日期之前的信件<input id="cleanup-before-date" name="beforeDate" type="date"></label></div>
+      <div id="cleanup-filter-fields" class="cleanup-filter-fields" hidden><label>寄件者<input name="sender" placeholder="名稱或 Email，可留空"></label><label>信件關鍵字<input name="keyword" placeholder="搜尋主旨或內容摘要，可留空"></label></div>
+      <p class="quick-folder-hint">只會處理目前篩選清單中的信件，並將符合條件者移至垃圾桶。</p>
+      <div class="form-actions"><button type="submit" class="danger">移至垃圾桶</button><button id="cleanup-cancel" type="button" class="ghost">取消</button></div>
+    </form>
+  </dialog>
   <div id="message-action-menu" class="message-action-menu" role="menu" hidden>
     <button id="download-message" type="button" role="menuitem"><span aria-hidden="true">⇩</span><span><b>下載完整信件</b><small>保留排版、圖片與附件的 .eml</small></span></button>
   </div>
