@@ -1,4 +1,5 @@
 html,body{max-width:100%;overflow-x:hidden}.app-shell,main,#view,.mail-layout,.message-list,.message-detail,.inbox-controls,.filter-group,.filter-rail,.account-grid,.split{min-width:0;max-width:100%}img,video,iframe{max-width:100%}.nav-icon{display:none}
+.filter-drawer-toggle,.filter-drawer-backdrop,.drawer-heading{display:none}
 @media(max-width:700px){
   body{padding-bottom:76px;background:#f4f5ef}
   .app-shell{display:block;width:100%;min-height:100dvh}
@@ -56,3 +57,16 @@ html,body{max-width:100%;overflow-x:hidden}.app-shell,main,#view,.mail-layout,.m
   #notice{left:12px;right:12px;top:12px;max-width:none}
 }
 @media(min-width:701px){.mobile-back{display:none!important}}
+@media(max-width:700px){
+  body.filters-open{overflow:hidden}
+  .filter-drawer-toggle{position:fixed;z-index:92;top:max(10px,env(safe-area-inset-top));left:10px;display:grid;place-items:center;width:44px;height:44px;padding:0;border:1px solid #cad4ca;border-radius:13px;background:var(--card);color:var(--green);box-shadow:0 8px 24px rgba(18,44,33,.16);font-size:1.45rem;line-height:1}
+  .filter-drawer-toggle[aria-expanded="true"]{background:var(--green);color:#fff}
+  .filter-drawer-backdrop{position:fixed;z-index:79;inset:0;display:block;width:100%;height:100%;padding:0;border-radius:0;background:rgba(12,29,22,.48);opacity:0;pointer-events:none;transition:opacity .2s ease}
+  .filter-drawer-backdrop[hidden]{display:none}
+  body.filters-open .filter-drawer-backdrop{opacity:1;pointer-events:auto}
+  .topbar{padding-left:50px}
+  .inbox-controls{position:fixed;z-index:90;top:0;bottom:0;left:0;width:min(88vw,380px);max-width:none;margin:0;padding:calc(17px + env(safe-area-inset-top)) 14px 24px;border-width:0 1px 0 0;border-radius:0 20px 20px 0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;transform:translateX(-105%);transition:transform .24s ease;box-shadow:18px 0 50px rgba(15,37,29,.2)}
+  body.filters-open .inbox-controls{transform:translateX(0)}
+  .drawer-heading{display:flex;align-items:center;justify-content:space-between;min-height:44px;margin:0 0 14px;padding-left:52px;color:var(--green);font-size:1.05rem}
+  .drawer-heading button{display:grid;place-items:center;width:38px;height:38px;padding:0;border-radius:50%;background:#edf1ea;font-size:1.4rem}
+}

@@ -14,6 +14,8 @@
   <link rel="stylesheet" href="/gestures.css">
 </head>
 <body>
+  <button id="filter-drawer-toggle" class="filter-drawer-toggle" type="button" aria-label="開啟信件篩選選單" aria-expanded="false" aria-controls="inbox-filters"><span aria-hidden="true">☰</span></button>
+  <button id="filter-drawer-backdrop" class="filter-drawer-backdrop" type="button" aria-label="關閉信件篩選選單" hidden></button>
   <div class="app-shell">
     <main>
       <header class="topbar">
@@ -25,7 +27,8 @@
     </main>
   </div>
   <template id="inbox-template">
-    <div class="inbox-controls card">
+    <div class="inbox-controls card" id="inbox-filters">
+      <div class="drawer-heading"><b>信件篩選</b><button id="filter-drawer-close" type="button" aria-label="關閉篩選選單">×</button></div>
       <label class="search"><span>搜尋</span><input id="search-input" placeholder="主旨、寄件者或內容摘要"></label>
       <div class="filter-group" aria-labelledby="account-filter-label">
         <div class="filter-heading-row"><div class="filter-heading-main"><div class="filter-heading" id="account-filter-label">信箱帳號</div><button class="filter-add heading-add" id="add-account" type="button" aria-label="增加信箱帳號">＋</button></div><button class="filter-settings" id="account-settings" type="button" aria-label="設定信箱帳號" aria-pressed="false"><span aria-hidden="true">⚙</span> 設定</button></div>

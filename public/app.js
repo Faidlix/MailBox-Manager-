@@ -13,6 +13,8 @@ const cleanupDialog = document.querySelector('#cleanup-dialog');
 const cleanupForm = document.querySelector('#cleanup-form');
 const messageFilterDialog = document.querySelector('#message-filter-dialog');
 const messageFilterForm = document.querySelector('#message-filter-form');
+const filterDrawerToggle = document.querySelector('#filter-drawer-toggle');
+const filterDrawerBackdrop = document.querySelector('#filter-drawer-backdrop');
 const messageActionMenu = document.querySelector('#message-action-menu');
 let actionMessageId = null;
 let accounts = [];
@@ -141,6 +143,14 @@ function showNotice(message, error = false) {
   setTimeout(() => { noticeRoot.innerHTML = ''; }, 4200);
 }
 
+function setFilterDrawer(open) {
+  document.body.classList.toggle('filters-open', open);
+  filterDrawerToggle.setAttribute('aria-expanded', String(open));
+  filterDrawerToggle.setAttribute('aria-label', open ? '關閉信件篩選選單' : '開啟信件篩選選單');
+  filterDrawerToggle.querySelector('span').textContent = open ? '×' : '☰';
+  filterDrawerBackdrop.hidden = !open;
+}
+
 function setBusy(button, busy, label = '處理中…') {
   if (busy) { button.dataset.original = button.textContent; button.textContent = label; button.disabled = true; }
   else { button.textContent = button.dataset.original || button.textContent; button.disabled = false; }
@@ -161,6 +171,7 @@ function accountOptions(selected = '') {
 }
 
 function openQuickFolderDialog(type) {
+  setFilterDrawer(false);
   quickFolderType = type;
   quickFolderForm.reset();
   const isAccount = type === 'accounts';
@@ -210,6 +221,7 @@ function openMessageFilterDialog() {
 }
 
 async function renderInbox() {
+  setFilterDrawer(false);
   title.textContent = '統一收件匣';
   view.append(document.querySelector('#inbox-template').content.cloneNode(true));
   await loadAccounts();
@@ -251,11 +263,13 @@ async function renderInbox() {
   };
   let timer;
   document.querySelector('#search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(update, 250); });
-  document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-account]'); if (!button) return; inboxFilters.accountId = button.dataset.account; renderFilters(); update(); });
+  document.querySelector('#search-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') setFilterDrawer(false); });
+  document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-account]'); if (!button) return; inboxFilters.accountId = button.dataset.account; renderFilters(); update(); setFilterDrawer(false); });
   document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-quick-account]'); if (!button) return; const folder = quickFolders.accounts.find((item) => item.id === button.dataset.quickAccount); if (folder) showNotice(`「${folder.name}」已新增，請按標題旁的齒輪完成信箱連線。`); });
-  document.querySelector('#category-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-category]'); if (!button) return; inboxFilters.category = button.dataset.category; renderFilters(); update(); });
-  document.querySelector('#mail-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-state]'); if (!button) return; inboxFilters.state = button.dataset.state; renderFilters(); update(); });
+  document.querySelector('#category-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-category]'); if (!button) return; inboxFilters.category = button.dataset.category; renderFilters(); update(); setFilterDrawer(false); });
+  document.querySelector('#mail-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-state]'); if (!button) return; inboxFilters.state = button.dataset.state; renderFilters(); update(); setFilterDrawer(false); });
   const openSettings = async (type) => {
+    setFilterDrawer(false);
     setSettingsState(type);
     if (type === 'accounts') await mountAccounts(inboxContent, true);
     else await mountRules(inboxContent, true);
@@ -265,6 +279,7 @@ async function renderInbox() {
   document.querySelector('#category-settings').addEventListener('click', () => openSettings('rules'));
   document.querySelector('#add-account').addEventListener('click', () => openQuickFolderDialog('accounts'));
   document.querySelector('#add-category').addEventListener('click', () => openQuickFolderDialog('categories'));
+  document.querySelector('#filter-drawer-close').addEventListener('click', () => setFilterDrawer(false));
   await update();
 }
 
@@ -776,6 +791,9 @@ helpButton.addEventListener('click', () => helpDialog.showModal());
 document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
 document.querySelector('#help-done').addEventListener('click', () => helpDialog.close());
 [composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+filterDrawerToggle.addEventListener('click', () => setFilterDrawer(!document.body.classList.contains('filters-open')));
+filterDrawerBackdrop.addEventListener('click', () => setFilterDrawer(false));
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && document.body.classList.contains('filters-open')) setFilterDrawer(false); });
 document.querySelector('#download-message').addEventListener('click', () => { if (actionMessageId) downloadMessage(actionMessageId); });
 document.addEventListener('pointerdown', (event) => { if (!messageActionMenu.hidden && !messageActionMenu.contains(event.target)) hideMessageMenu(); });
 window.addEventListener('scroll', hideMessageMenu, { passive: true });
