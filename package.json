@@ -8,16 +8,25 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test",
-    "check": "node --check src/server.js && node --check public/app.js"
+    "check": "node --check src/server.js && node --check public/app.js",
+    "android:sync": "cap sync android",
+    "android:debug": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "android:release:unsigned": "npm run android:sync && cd android && gradlew.bat assembleRelease"
   },
   "engines": {
     "node": ">=22.5"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
     "express": "^5.1.0",
     "googleapis": "^160.0.0",
     "imapflow": "^1.0.189",
     "mailparser": "^3.7.4",
     "nodemailer": "^10.0.15"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
+    "typescript": "^7.0.2"
   }
 }
