@@ -14,13 +14,12 @@
   <link rel="stylesheet" href="/gestures.css">
 </head>
 <body>
-  <button id="filter-drawer-toggle" class="filter-drawer-toggle" type="button" aria-label="開啟信件篩選選單" aria-expanded="false" aria-controls="inbox-filters"><span aria-hidden="true">☰</span></button>
   <button id="filter-drawer-backdrop" class="filter-drawer-backdrop" type="button" aria-label="關閉信件篩選選單" hidden></button>
   <div class="app-shell">
     <main>
       <header class="topbar">
-        <div class="title-block"><p class="eyebrow">PERSONAL COMMUNICATION HUB <span id="demo-label" hidden>· 介面測試版</span></p><div class="title-line"><h1 id="page-title">統一收件匣</h1><button id="help-button" class="help-button" type="button" aria-label="開啟說明">?</button></div></div>
-        <div class="top-actions"><button id="compose-button" class="ghost" type="button">寫信</button><button id="sync-button" class="primary">同步全部</button></div>
+        <div class="title-block"><p class="eyebrow">PERSONAL COMMUNICATION HUB <span id="demo-label" hidden>· 介面測試版</span></p><div class="title-line"><button id="filter-drawer-toggle" class="filter-drawer-toggle" type="button" aria-label="開啟信件篩選選單" aria-expanded="false" aria-controls="inbox-filters"><span aria-hidden="true">☰</span></button><h1 id="page-title">統一收件匣</h1><button id="help-button" class="help-button" type="button" aria-label="開啟說明">?</button></div></div>
+        <div class="top-actions"><button id="compose-button" class="ghost compose-fab" type="button" aria-label="寫信" title="寫信"><span class="compose-icon" aria-hidden="true">✎</span><span class="compose-label">寫信</span></button><button id="sync-button" class="primary">同步</button></div>
       </header>
       <div id="notice" role="status" aria-live="polite"></div>
       <section id="view" tabindex="-1"></section>
