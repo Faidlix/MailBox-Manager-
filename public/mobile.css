@@ -33,7 +33,7 @@ html,body{max-width:100%;overflow-x:hidden}.app-shell,main,#view,.mail-layout,.m
   .message-row.unread:before{left:7px;top:21px}
   .row-top{align-items:flex-start;gap:8px}
   .sender{min-width:0;flex:1;font-size:1rem}
-  .date{flex:0 0 auto;font-size:.72rem;max-width:38%;white-space:normal;text-align:right}
+  .date{flex:0 0 auto;font-size:.72rem;max-width:none;white-space:nowrap;text-align:right}
   .subject{font-size:.96rem;margin-top:6px}
   .snippet{font-size:.82rem}
   .account-pill,.category-pill{max-width:72%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}

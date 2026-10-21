@@ -255,7 +255,7 @@ async function renderInbox() {
     <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled><span aria-hidden="true">↪</span> 搬移信件</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-move-folder="INBOX">收件匣</button><button type="button" data-move-folder="ARCHIVE">封存</button><button type="button" data-move-folder="SPAM">垃圾郵件</button><button type="button" data-move-folder="TRASH">垃圾桶</button></div></div>
     <button id="bulk-spam" class="toolbar-action" type="button" disabled><span aria-hidden="true">!</span> 垃圾信件</button>
     <div class="toolbar-menu-wrap"><button id="bulk-trash" class="toolbar-action danger-action" type="button"><span aria-hidden="true">⌫</span> 垃圾桶</button><div id="trash-options" class="toolbar-menu trash-menu" hidden><button type="button" data-trash-mode="all"><b>全部信件</b><small>移除目前選取的全部信件</small></button><button type="button" data-trash-mode="unstarred"><b>排除星號</b><small>保留已加星的選取信件</small></button><button type="button" data-trash-mode="date"><b>指定日期之前</b><small>設定日期並清理較早的信件</small></button><button type="button" data-trash-mode="filter"><b>寄件者／關鍵字</b><small>依寄件者或信件內容條件清理</small></button></div></div>
-  </div><nav id="message-pagination" class="message-pagination" aria-label="信件分頁" hidden></nav><div class="mail-layout"><div id="message-list" class="message-list card"></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>`;
+  </div><div class="mail-layout"><div id="message-list" class="message-list card"><nav id="message-pagination" class="message-pagination" aria-label="信件分頁" hidden></nav><div id="message-list-scroll" class="message-list-scroll"></div></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>`;
   const setSettingsState = (active = '') => {
     document.querySelector('#account-settings').setAttribute('aria-pressed', String(active === 'accounts'));
     document.querySelector('#category-settings').setAttribute('aria-pressed', String(active === 'rules'));
@@ -273,7 +273,8 @@ async function renderInbox() {
     setSettingsState();
     const search = document.querySelector('#search-input').value;
     const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state, limit: '1000' });
-    document.querySelector('#message-list').innerHTML = '<div class="loading">載入郵件中…</div>';
+    document.querySelector('#message-pagination').hidden = true;
+    document.querySelector('#message-list-scroll').innerHTML = '<div class="loading">載入郵件中…</div>';
     loadedMessages = await api(`/api/messages?${query}`);
     messages = applyMessageViewFilter(loadedMessages);
     messagePage = 1;
@@ -452,7 +453,7 @@ function bindBulkToolbar() {
 }
 
 function renderMessageList() {
-  const list = document.querySelector('#message-list');
+  const list = document.querySelector('#message-list-scroll');
   const pagination = document.querySelector('#message-pagination');
   if (!messages.length) {
     pagination.hidden = true;
