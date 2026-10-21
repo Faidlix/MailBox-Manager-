@@ -20,6 +20,7 @@ let actionMessageId = null;
 let accounts = [];
 let messages = [];
 const selectedMessageIds = new Set();
+const collapsedDateGroups = new Set();
 const QUICK_FOLDERS_KEY = 'mailbox-manager-quick-folders-v1';
 const loadQuickFolders = () => {
   try {
@@ -166,6 +167,19 @@ function formatDate(value) {
   return new Intl.DateTimeFormat('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
+function messageDate(value) {
+  return new Date(value.endsWith?.('Z') ? value : `${value}Z`);
+}
+
+function messageDateKey(value) {
+  const date = messageDate(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatMessageGroupDate(value) {
+  return new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }).format(messageDate(value));
+}
+
 function accountOptions(selected = '') {
   return accounts.map((account) => `<option value="${account.id}" ${String(account.id) === String(selected) ? 'selected' : ''}>${escapeHtml(account.email)} · ${account.provider === 'gmail' ? 'Gmail' : 'IMAP'}</option>`).join('');
 }
@@ -279,7 +293,6 @@ async function renderInbox() {
   document.querySelector('#category-settings').addEventListener('click', () => openSettings('rules'));
   document.querySelector('#add-account').addEventListener('click', () => openQuickFolderDialog('accounts'));
   document.querySelector('#add-category').addEventListener('click', () => openQuickFolderDialog('categories'));
-  document.querySelector('#filter-drawer-close').addEventListener('click', () => setFilterDrawer(false));
   await update();
 }
 
@@ -295,6 +308,12 @@ function updateBulkToolbar() {
   document.querySelector('#message-filter').setAttribute('aria-pressed', String(filterActive));
   document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && !['bulk-trash', 'message-filter'].includes(button.id); });
   document.querySelector('#bulk-star span').textContent = selected.length && selected.every((message) => message.is_starred) ? '☆' : '★';
+  document.querySelectorAll('.date-select').forEach((checkbox) => {
+    const group = messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey);
+    const selectedInGroup = group.filter((message) => selectedMessageIds.has(message.id)).length;
+    checkbox.checked = group.length > 0 && selectedInGroup === group.length;
+    checkbox.indeterminate = selectedInGroup > 0 && selectedInGroup < group.length;
+  });
 }
 
 async function toggleMessageStar(id) {
@@ -384,16 +403,45 @@ function renderMessageList() {
     updateBulkToolbar();
     return;
   }
-  list.innerHTML = messages.map((message) => `
+  const groups = new Map();
+  messages.forEach((message) => {
+    const key = messageDateKey(message.received_at);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(message);
+  });
+  const messageRow = (message) => `
     <div class="message-swipe" data-id="${message.id}">
       <div class="swipe-action archive"><span>⇥</span>封存</div><div class="swipe-action delete">刪除<span>⌫</span></div>
       <div class="message-row ${message.is_read ? '' : 'unread'} ${selectedMessageIds.has(message.id) ? 'batch-selected' : ''}" data-id="${message.id}" tabindex="0" role="button" aria-label="${escapeHtml(message.subject)}">
-        <div class="message-leading"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button></div>
-        <div class="message-summary"><div class="row-top"><span class="sender">${escapeHtml(message.sender_name || message.sender_email)}</span><time class="date">${formatDate(message.received_at)}</time></div>
-        <div class="subject">${escapeHtml(message.subject)}</div><div class="snippet">${escapeHtml(message.snippet)}</div>
-        <span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span></div>
+        <div class="message-leading"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"></div>
+        <div class="message-summary"><div class="row-top"><div class="subject">${escapeHtml(message.subject)}</div><time class="date">${formatDate(message.received_at)}</time></div>
+        <div class="snippet">${escapeHtml(message.snippet)}</div>
+        <div class="message-footer"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button><span class="sender">${escapeHtml(message.sender_name || '未命名寄件者')}</span><span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span></div></div>
       </div>
-    </div>`).join('');
+    </div>`;
+  list.innerHTML = [...groups.entries()].map(([key, group]) => {
+    const collapsed = collapsedDateGroups.has(key);
+    return `<section class="message-date-group ${collapsed ? 'collapsed' : ''}" data-date-key="${key}">
+      <div class="date-divider">
+        <input class="date-select" type="checkbox" data-date-key="${key}" aria-label="選取 ${formatMessageGroupDate(group[0].received_at)} 的全部信件">
+        <button class="date-collapse" type="button" data-date-key="${key}" aria-expanded="${!collapsed}" aria-label="${collapsed ? '展開' : '收合'} ${formatMessageGroupDate(group[0].received_at)} 的信件"><span aria-hidden="true">⌄</span></button>
+        <span class="date-divider-line" aria-hidden="true"></span>
+        <time datetime="${key}">${formatMessageGroupDate(group[0].received_at)}</time>
+      </div>
+      <div class="date-messages" ${collapsed ? 'hidden' : ''}>${group.map(messageRow).join('')}</div>
+    </section>`;
+  }).join('');
+  list.querySelectorAll('.date-select').forEach((checkbox) => checkbox.addEventListener('change', () => {
+    messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey).forEach((message) => {
+      if (checkbox.checked) selectedMessageIds.add(message.id); else selectedMessageIds.delete(message.id);
+    });
+    renderMessageList();
+  }));
+  list.querySelectorAll('.date-collapse').forEach((button) => button.addEventListener('click', () => {
+    const key = button.dataset.dateKey;
+    if (collapsedDateGroups.has(key)) collapsedDateGroups.delete(key); else collapsedDateGroups.add(key);
+    renderMessageList();
+  }));
   list.querySelectorAll('.message-row').forEach((row) => {
     const id = Number(row.dataset.id);
     const open = (event) => { if (!row.dataset.ignoreClick && !event?.target.closest('button,input')) openMessage(id); };
