@@ -19,6 +19,8 @@ const messageActionMenu = document.querySelector('#message-action-menu');
 let actionMessageId = null;
 let accounts = [];
 let messages = [];
+const MESSAGE_PAGE_SIZE = 100;
+let messagePage = 1;
 const selectedMessageIds = new Set();
 const QUICK_FOLDERS_KEY = 'mailbox-manager-quick-folders-v1';
 const loadQuickFolders = () => {
@@ -247,7 +249,7 @@ async function renderInbox() {
   const mailShell = () => `<div class="mail-toolbar card" aria-label="信件操作列">
     <label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label>
     <button id="message-filter" class="toolbar-action" type="button"><span aria-hidden="true">☷</span> 篩選</button><button id="message-filter-reset" class="toolbar-action filter-reset" type="button" aria-label="重設全部篩選" title="重設全部篩選" hidden>×</button>
-    <span id="selected-count" class="selected-count">未選取</span>
+    <span id="selected-count" class="selected-count">未選取</span><div id="selection-scope" class="selection-scope" hidden><span>選取：</span><button id="select-current-page" type="button">本頁 100 封</button><button id="select-all-results" type="button">全部信件</button></div>
     <button id="bulk-star" class="toolbar-action" type="button" disabled><span aria-hidden="true">★</span> 星號</button>
     <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled><span aria-hidden="true">↪</span> 搬移信件</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-move-folder="INBOX">收件匣</button><button type="button" data-move-folder="ARCHIVE">封存</button><button type="button" data-move-folder="SPAM">垃圾郵件</button><button type="button" data-move-folder="TRASH">垃圾桶</button></div></div>
     <button id="bulk-spam" class="toolbar-action" type="button" disabled><span aria-hidden="true">!</span> 垃圾信件</button>
@@ -273,6 +275,7 @@ async function renderInbox() {
     document.querySelector('#message-list').innerHTML = '<div class="loading">載入郵件中…</div>';
     loadedMessages = await api(`/api/messages?${query}`);
     messages = applyMessageViewFilter(loadedMessages);
+    messagePage = 1;
     selectedMessageIds.clear();
     renderMessageList();
   };
@@ -299,11 +302,20 @@ async function renderInbox() {
 
 function updateBulkToolbar() {
   const selected = messages.filter((message) => selectedMessageIds.has(message.id));
+  const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
+  const pageMessages = messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE);
+  const selectedOnPage = pageMessages.filter((message) => selectedMessageIds.has(message.id));
   const selectAll = document.querySelector('#select-all-messages');
   if (!selectAll) return;
-  selectAll.checked = messages.length > 0 && selected.length === messages.length;
-  selectAll.indeterminate = selected.length > 0 && selected.length < messages.length;
+  selectAll.checked = pageMessages.length > 0 && selectedOnPage.length === pageMessages.length;
+  selectAll.indeterminate = selectedOnPage.length > 0 && selectedOnPage.length < pageMessages.length;
   document.querySelector('#selected-count').textContent = selected.length ? `已選 ${selected.length} 封` : `共 ${messages.length} 封`;
+  const selectionScope = document.querySelector('#selection-scope');
+  selectionScope.hidden = selected.length === 0;
+  document.querySelector('#select-current-page').textContent = `本頁 ${pageMessages.length} 封`;
+  const selectAllResults = document.querySelector('#select-all-results');
+  selectAllResults.textContent = `全部 ${messages.length} 封`;
+  selectAllResults.hidden = messages.length <= pageMessages.length;
   const filterActive = Object.values(messageViewFilter).some(Boolean) || Boolean(inboxFilters.accountId || inboxFilters.category || inboxFilters.state !== 'all' || document.querySelector('#search-input')?.value);
   document.querySelector('#message-filter').classList.toggle('active', filterActive);
   document.querySelector('#message-filter').setAttribute('aria-pressed', String(filterActive));
@@ -368,8 +380,21 @@ function bindBulkToolbar() {
   const selectAll = document.querySelector('#select-all-messages');
   if (!selectAll) return;
   selectAll.addEventListener('change', () => {
+    const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
+    messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => {
+      if (selectAll.checked) selectedMessageIds.add(message.id); else selectedMessageIds.delete(message.id);
+    });
+    renderMessageList();
+  });
+  document.querySelector('#select-current-page').addEventListener('click', () => {
     selectedMessageIds.clear();
-    if (selectAll.checked) messages.forEach((message) => selectedMessageIds.add(message.id));
+    const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
+    messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => selectedMessageIds.add(message.id));
+    renderMessageList();
+  });
+  document.querySelector('#select-all-results').addEventListener('click', () => {
+    selectedMessageIds.clear();
+    messages.forEach((message) => selectedMessageIds.add(message.id));
     renderMessageList();
   });
   document.querySelector('#message-filter').addEventListener('click', openMessageFilterDialog);
@@ -414,8 +439,12 @@ function renderMessageList() {
     updateBulkToolbar();
     return;
   }
+  const totalPages = Math.max(1, Math.ceil(messages.length / MESSAGE_PAGE_SIZE));
+  messagePage = Math.min(Math.max(messagePage, 1), totalPages);
+  const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
+  const pageMessages = messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE);
   const groups = new Map();
-  messages.forEach((message) => {
+  pageMessages.forEach((message) => {
     const key = messageDateKey(message.received_at);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(message);
@@ -437,7 +466,12 @@ function renderMessageList() {
       </div>
       <div class="date-messages">${group.map(messageRow).join('')}</div>
     </section>`;
-  }).join('');
+  }).join('') + `<nav class="message-pagination" aria-label="信件分頁"><button type="button" data-page-direction="previous" ${messagePage === 1 ? 'disabled' : ''}>上一頁</button><span>第 ${messagePage} / ${totalPages} 頁 · 本頁 ${pageMessages.length} 封 · 共 ${messages.length} 封</span><button type="button" data-page-direction="next" ${messagePage === totalPages ? 'disabled' : ''}>下一頁</button></nav>`;
+  list.querySelectorAll('[data-page-direction]').forEach((button) => button.addEventListener('click', () => {
+    messagePage += button.dataset.pageDirection === 'next' ? 1 : -1;
+    renderMessageList();
+    list.scrollTop = 0;
+  }));
   list.querySelectorAll('.date-select').forEach((checkbox) => checkbox.addEventListener('change', () => {
     messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey).forEach((message) => {
       if (checkbox.checked) selectedMessageIds.add(message.id); else selectedMessageIds.delete(message.id);
@@ -448,6 +482,7 @@ function renderMessageList() {
     const sender = button.dataset.senderFilter;
     messageViewFilter.sender = messageViewFilter.sender === sender ? '' : sender;
     messages = applyMessageViewFilter(loadedMessages);
+    messagePage = 1;
     selectedMessageIds.clear();
     renderMessageList();
     showNotice(messageViewFilter.sender ? `只顯示「${sender}」的信件` : '已取消寄件來源篩選');
@@ -463,6 +498,7 @@ function renderMessageList() {
     messageViewFilter.fromDate = active ? '' : key;
     messageViewFilter.toDate = active ? '' : key;
     messages = applyMessageViewFilter(loadedMessages);
+    messagePage = 1;
     selectedMessageIds.clear();
     renderMessageList();
     showNotice(active ? '已取消日期篩選' : `只顯示 ${button.textContent.trim()} 的信件`);
@@ -845,6 +881,7 @@ messageFilterForm.addEventListener('submit', (event) => {
     subject: String(data.subject || '').trim(),
   });
   messages = applyMessageViewFilter(loadedMessages);
+  messagePage = 1;
   selectedMessageIds.clear();
   messageFilterDialog.close();
   renderMessageList();
@@ -853,6 +890,7 @@ messageFilterForm.addEventListener('submit', (event) => {
 document.querySelector('#message-filter-clear').addEventListener('click', () => {
   Object.assign(messageViewFilter, { fromDate: '', toDate: '', sender: '', subject: '' });
   messages = [...loadedMessages];
+  messagePage = 1;
   selectedMessageIds.clear();
   messageFilterDialog.close();
   renderMessageList();
