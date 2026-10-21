@@ -11,6 +11,8 @@ const quickFolderDialog = document.querySelector('#quick-folder-dialog');
 const quickFolderForm = document.querySelector('#quick-folder-form');
 const cleanupDialog = document.querySelector('#cleanup-dialog');
 const cleanupForm = document.querySelector('#cleanup-form');
+const messageFilterDialog = document.querySelector('#message-filter-dialog');
+const messageFilterForm = document.querySelector('#message-filter-form');
 const messageActionMenu = document.querySelector('#message-action-menu');
 let actionMessageId = null;
 let accounts = [];
@@ -27,6 +29,8 @@ let quickFolders = loadQuickFolders();
 let quickFolderType = 'accounts';
 let cleanupMode = 'date';
 const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
+let loadedMessages = [];
+const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
 const inboxFilters = { accountId: '', category: '', state: 'all' };
 const demoMode = location.protocol === 'https:' || new URLSearchParams(location.search).has('demo');
 const demoAccounts = [
@@ -184,6 +188,27 @@ function bindQuickFolderDeletes(target, refresh) {
   }));
 }
 
+function applyMessageViewFilter(source) {
+  const from = messageViewFilter.fromDate ? new Date(`${messageViewFilter.fromDate}T00:00:00`).getTime() : null;
+  const to = messageViewFilter.toDate ? new Date(`${messageViewFilter.toDate}T23:59:59.999`).getTime() : null;
+  const sender = messageViewFilter.sender.toLocaleLowerCase();
+  const subject = messageViewFilter.subject.toLocaleLowerCase();
+  return source.filter((message) => {
+    const received = new Date(message.received_at).getTime();
+    const senderText = `${message.sender_name || ''} ${message.sender_email || ''}`.toLocaleLowerCase();
+    const subjectText = String(message.subject || '').toLocaleLowerCase();
+    return (!from || received >= from) && (!to || received <= to) && (!sender || senderText.includes(sender)) && (!subject || subjectText.includes(subject));
+  });
+}
+
+function openMessageFilterDialog() {
+  messageFilterForm.fromDate.value = messageViewFilter.fromDate;
+  messageFilterForm.toDate.value = messageViewFilter.toDate;
+  messageFilterForm.sender.value = messageViewFilter.sender;
+  messageFilterForm.subject.value = messageViewFilter.subject;
+  messageFilterDialog.showModal();
+}
+
 async function renderInbox() {
   title.textContent = '統一收件匣';
   view.append(document.querySelector('#inbox-template').content.cloneNode(true));
@@ -194,6 +219,7 @@ async function renderInbox() {
   const inboxContent = document.querySelector('#inbox-content');
   const mailShell = () => `<div class="mail-toolbar card" aria-label="信件操作列">
     <label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label>
+    <button id="message-filter" class="toolbar-action" type="button"><span aria-hidden="true">☷</span> 篩選</button>
     <span id="selected-count" class="selected-count">未選取</span>
     <button id="bulk-star" class="toolbar-action" type="button" disabled><span aria-hidden="true">★</span> 星號</button>
     <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled><span aria-hidden="true">↪</span> 搬移信件</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-move-folder="INBOX">收件匣</button><button type="button" data-move-folder="ARCHIVE">封存</button><button type="button" data-move-folder="SPAM">垃圾郵件</button><button type="button" data-move-folder="TRASH">垃圾桶</button></div></div>
@@ -218,7 +244,8 @@ async function renderInbox() {
     const search = document.querySelector('#search-input').value;
     const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state, limit: '1000' });
     document.querySelector('#message-list').innerHTML = '<div class="loading">載入郵件中…</div>';
-    messages = await api(`/api/messages?${query}`);
+    loadedMessages = await api(`/api/messages?${query}`);
+    messages = applyMessageViewFilter(loadedMessages);
     selectedMessageIds.clear();
     renderMessageList();
   };
@@ -248,7 +275,10 @@ function updateBulkToolbar() {
   selectAll.checked = messages.length > 0 && selected.length === messages.length;
   selectAll.indeterminate = selected.length > 0 && selected.length < messages.length;
   document.querySelector('#selected-count').textContent = selected.length ? `已選 ${selected.length} 封` : `共 ${messages.length} 封`;
-  document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && button.id !== 'bulk-trash'; });
+  const filterActive = Object.values(messageViewFilter).some(Boolean);
+  document.querySelector('#message-filter').classList.toggle('active', filterActive);
+  document.querySelector('#message-filter').setAttribute('aria-pressed', String(filterActive));
+  document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && !['bulk-trash', 'message-filter'].includes(button.id); });
   document.querySelector('#bulk-star span').textContent = selected.length && selected.every((message) => message.is_starred) ? '☆' : '★';
 }
 
@@ -306,6 +336,7 @@ function bindBulkToolbar() {
     if (selectAll.checked) messages.forEach((message) => selectedMessageIds.add(message.id));
     renderMessageList();
   });
+  document.querySelector('#message-filter').addEventListener('click', openMessageFilterDialog);
   document.querySelector('#bulk-star').addEventListener('click', async () => {
     const selected = messages.filter((message) => selectedMessageIds.has(message.id));
     const starred = !selected.every((message) => message.is_starred);
@@ -715,10 +746,36 @@ cleanupForm.addEventListener('submit', async (event) => {
 });
 document.querySelector('#cleanup-cancel').addEventListener('click', () => cleanupDialog.close());
 document.querySelector('#cleanup-close').addEventListener('click', () => cleanupDialog.close());
+messageFilterForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(messageFilterForm));
+  if (data.fromDate && data.toDate && data.fromDate > data.toDate) { showNotice('開始日期不可晚於結束日期', true); return; }
+  Object.assign(messageViewFilter, {
+    fromDate: String(data.fromDate || ''),
+    toDate: String(data.toDate || ''),
+    sender: String(data.sender || '').trim(),
+    subject: String(data.subject || '').trim(),
+  });
+  messages = applyMessageViewFilter(loadedMessages);
+  selectedMessageIds.clear();
+  messageFilterDialog.close();
+  renderMessageList();
+  showNotice(`已顯示 ${messages.length} 封符合條件的信件`);
+});
+document.querySelector('#message-filter-clear').addEventListener('click', () => {
+  Object.assign(messageViewFilter, { fromDate: '', toDate: '', sender: '', subject: '' });
+  messages = [...loadedMessages];
+  selectedMessageIds.clear();
+  messageFilterDialog.close();
+  renderMessageList();
+  showNotice('已清除信件篩選');
+});
+document.querySelector('#message-filter-cancel').addEventListener('click', () => messageFilterDialog.close());
+document.querySelector('#message-filter-close').addEventListener('click', () => messageFilterDialog.close());
 helpButton.addEventListener('click', () => helpDialog.showModal());
 document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
 document.querySelector('#help-done').addEventListener('click', () => helpDialog.close());
-[composeDialog, helpDialog, quickFolderDialog, cleanupDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+[composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
 document.querySelector('#download-message').addEventListener('click', () => { if (actionMessageId) downloadMessage(actionMessageId); });
 document.addEventListener('pointerdown', (event) => { if (!messageActionMenu.hidden && !messageActionMenu.contains(event.target)) hideMessageMenu(); });
 window.addEventListener('scroll', hideMessageMenu, { passive: true });

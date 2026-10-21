@@ -80,6 +80,16 @@
       <div class="form-actions"><button type="submit" class="danger">移至垃圾桶</button><button id="cleanup-cancel" type="button" class="ghost">取消</button></div>
     </form>
   </dialog>
+  <dialog id="message-filter-dialog" class="app-dialog cleanup-dialog" aria-labelledby="message-filter-title">
+    <form id="message-filter-form" class="form-card">
+      <div class="dialog-heading"><div><p class="eyebrow">MESSAGE FILTER</p><h2 id="message-filter-title">篩選顯示的信件</h2></div><button class="dialog-x" id="message-filter-close" type="button" aria-label="關閉篩選視窗">×</button></div>
+      <div class="split"><label>開始日期<input name="fromDate" type="date"></label><label>結束日期<input name="toDate" type="date"></label></div>
+      <label>寄件者<input name="sender" placeholder="寄件者名稱或 Email，可留空"></label>
+      <label>標題<input name="subject" placeholder="標題關鍵字，可留空"></label>
+      <p class="quick-folder-hint">只顯示同時符合已填條件的信件；未填欄位不限制。</p>
+      <div class="form-actions"><button type="submit" class="primary">套用篩選</button><button id="message-filter-clear" type="button" class="ghost">清除篩選</button><button id="message-filter-cancel" type="button" class="ghost">取消</button></div>
+    </form>
+  </dialog>
   <div id="message-action-menu" class="message-action-menu" role="menu" hidden>
     <button id="download-message" type="button" role="menuitem"><span aria-hidden="true">⇩</span><span><b>下載完整信件</b><small>保留排版、圖片與附件的 .eml</small></span></button>
   </div>
