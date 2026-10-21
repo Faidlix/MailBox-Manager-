@@ -21,19 +21,19 @@ html,body{max-width:100%;overflow-x:hidden}.app-shell,main,#view,.mail-layout,.m
   .inbox-controls{width:100%;padding:13px 12px;gap:13px;margin-bottom:12px}
   .inbox-controls .search{display:block;width:100%}
   .inbox-controls .search input{width:100%;height:44px;font-size:1rem}
-  .filter-rail{width:100%;grid-template-columns:minmax(0,1fr) 44px;gap:6px;overflow:hidden}
-  .filter-scroll{min-width:0;width:100%;max-width:100%;gap:7px;padding:2px 1px 6px;overflow-x:auto;overflow-y:hidden;touch-action:pan-x;scrollbar-width:none}
+  .filter-rail{display:block;width:100%;overflow:visible}
+  .filter-scroll{display:flex;flex-wrap:wrap;align-items:center;min-width:0;width:100%;max-width:100%;gap:7px;padding:2px 1px 6px;overflow:visible;touch-action:pan-y;scrollbar-width:none}
   .filter-scroll::-webkit-scrollbar{display:none}
-  .filter-chip{min-height:42px;padding:9px 13px;font-size:.9rem}
+  .filter-chip{flex:0 0 auto;width:auto;max-width:100%;min-height:38px;padding:8px 12px;font-size:.86rem;text-align:center}
   .filter-add{position:relative;z-index:2;width:44px;height:44px;border-radius:12px;box-shadow:-8px 0 14px rgba(255,254,250,.95)}
   .filter-heading-row{margin-bottom:5px}.filter-settings{min-height:34px;padding:5px 9px;font-size:.76rem}.inline-panel-head{align-items:flex-start}.inline-panel-head h2{font-size:1.35rem}.inline-panel-head p{font-size:.85rem}.inline-panel-close{padding:9px 11px}
   .mail-layout{display:block;width:100%;min-height:0}
-  .message-list{width:100%;overflow:hidden}
+  .message-list{width:100%;overflow:hidden;border-right:0;border-left:0}
   .message-row{width:100%;padding:15px 14px 15px 18px}
   .message-row.unread:before{left:7px;top:21px}
   .row-top{align-items:flex-start;gap:8px}
   .sender{min-width:0;flex:1;font-size:1rem}
-  .date{flex:0 0 auto;font-size:.72rem;max-width:38%;white-space:normal;text-align:right}
+  .date{flex:0 0 auto;font-size:.72rem;max-width:none;white-space:nowrap;text-align:right}
   .subject{font-size:.96rem;margin-top:6px}
   .snippet{font-size:.82rem}
   .account-pill,.category-pill{max-width:72%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
@@ -65,8 +65,7 @@ html,body{max-width:100%;overflow-x:hidden}.app-shell,main,#view,.mail-layout,.m
   .filter-drawer-backdrop[hidden]{display:none}
   body.filters-open .filter-drawer-backdrop{opacity:1;pointer-events:auto}
   .topbar{padding-left:50px}
-  .inbox-controls{position:fixed;z-index:90;top:0;bottom:0;left:0;width:min(88vw,380px);max-width:none;margin:0;padding:calc(17px + env(safe-area-inset-top)) 14px 24px;border-width:0 1px 0 0;border-radius:0 20px 20px 0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;transform:translateX(-105%);transition:transform .24s ease;box-shadow:18px 0 50px rgba(15,37,29,.2)}
-  body.filters-open .inbox-controls{transform:translateX(0)}
-  .drawer-heading{display:flex;align-items:center;justify-content:space-between;min-height:44px;margin:0 0 14px;padding-left:52px;color:var(--green);font-size:1.05rem}
-  .drawer-heading button{display:grid;place-items:center;width:38px;height:38px;padding:0;border-radius:50%;background:#edf1ea;font-size:1.4rem}
+  .inbox-controls{position:fixed;z-index:90;top:0;right:0;left:0;bottom:auto;width:100%;max-width:none;max-height:min(82dvh,720px);margin:0;padding:calc(17px + env(safe-area-inset-top)) 14px 24px;border-width:0 0 1px;border-radius:0 0 20px 20px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;transform:translateY(calc(-100% - 12px));transition:transform .24s ease;box-shadow:0 18px 50px rgba(15,37,29,.2)}
+  body.filters-open .inbox-controls{transform:translateY(0)}
+  .drawer-heading{display:flex;align-items:center;min-height:44px;margin:0 0 14px;padding-left:48px;color:var(--green);font-size:1.05rem}
 }

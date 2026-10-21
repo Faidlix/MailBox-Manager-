@@ -19,6 +19,9 @@ const messageActionMenu = document.querySelector('#message-action-menu');
 let actionMessageId = null;
 let accounts = [];
 let messages = [];
+const MESSAGE_PAGE_SIZE = 100;
+let messagePage = 1;
+let selectionScopeRequested = false;
 const selectedMessageIds = new Set();
 const QUICK_FOLDERS_KEY = 'mailbox-manager-quick-folders-v1';
 const loadQuickFolders = () => {
@@ -166,6 +169,21 @@ function formatDate(value) {
   return new Intl.DateTimeFormat('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
+function messageDate(value) {
+  return new Date(value.endsWith?.('Z') ? value : `${value}Z`);
+}
+
+function messageDateKey(value) {
+  const date = messageDate(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatMessageGroupDate(value) {
+  const date = messageDate(value);
+  const weekday = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()];
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}（${weekday}）`;
+}
+
 function accountOptions(selected = '') {
   return accounts.map((account) => `<option value="${account.id}" ${String(account.id) === String(selected) ? 'selected' : ''}>${escapeHtml(account.email)} · ${account.provider === 'gmail' ? 'Gmail' : 'IMAP'}</option>`).join('');
 }
@@ -231,13 +249,13 @@ async function renderInbox() {
   const inboxContent = document.querySelector('#inbox-content');
   const mailShell = () => `<div class="mail-toolbar card" aria-label="信件操作列">
     <label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label>
-    <button id="message-filter" class="toolbar-action" type="button"><span aria-hidden="true">☷</span> 篩選</button>
-    <span id="selected-count" class="selected-count">未選取</span>
+    <button id="message-filter" class="toolbar-action" type="button"><span aria-hidden="true">☷</span><span id="message-filter-label">篩選</span></button><button id="message-filter-reset" class="toolbar-action filter-reset" type="button" aria-label="重設全部篩選" title="重設全部篩選" hidden>×</button>
+    <span id="selected-count" class="selected-count">未選取</span><div id="selection-scope" class="selection-scope" hidden><span>選取：</span><button id="select-current-page" type="button">本頁 100 封</button><button id="select-all-results" type="button">全部信件</button></div>
     <button id="bulk-star" class="toolbar-action" type="button" disabled><span aria-hidden="true">★</span> 星號</button>
     <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled><span aria-hidden="true">↪</span> 搬移信件</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-move-folder="INBOX">收件匣</button><button type="button" data-move-folder="ARCHIVE">封存</button><button type="button" data-move-folder="SPAM">垃圾郵件</button><button type="button" data-move-folder="TRASH">垃圾桶</button></div></div>
     <button id="bulk-spam" class="toolbar-action" type="button" disabled><span aria-hidden="true">!</span> 垃圾信件</button>
     <div class="toolbar-menu-wrap"><button id="bulk-trash" class="toolbar-action danger-action" type="button"><span aria-hidden="true">⌫</span> 垃圾桶</button><div id="trash-options" class="toolbar-menu trash-menu" hidden><button type="button" data-trash-mode="all"><b>全部信件</b><small>移除目前選取的全部信件</small></button><button type="button" data-trash-mode="unstarred"><b>排除星號</b><small>保留已加星的選取信件</small></button><button type="button" data-trash-mode="date"><b>指定日期之前</b><small>設定日期並清理較早的信件</small></button><button type="button" data-trash-mode="filter"><b>寄件者／關鍵字</b><small>依寄件者或信件內容條件清理</small></button></div></div>
-  </div><div class="mail-layout"><div id="message-list" class="message-list card"></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>`;
+  </div><div class="mail-layout"><div id="message-list" class="message-list card"><nav id="message-pagination" class="message-pagination" aria-label="信件分頁" hidden></nav><div id="message-list-scroll" class="message-list-scroll"></div></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>`;
   const setSettingsState = (active = '') => {
     document.querySelector('#account-settings').setAttribute('aria-pressed', String(active === 'accounts'));
     document.querySelector('#category-settings').setAttribute('aria-pressed', String(active === 'rules'));
@@ -255,9 +273,12 @@ async function renderInbox() {
     setSettingsState();
     const search = document.querySelector('#search-input').value;
     const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state, limit: '1000' });
-    document.querySelector('#message-list').innerHTML = '<div class="loading">載入郵件中…</div>';
+    document.querySelector('#message-pagination').hidden = true;
+    document.querySelector('#message-list-scroll').innerHTML = '<div class="loading">載入郵件中…</div>';
     loadedMessages = await api(`/api/messages?${query}`);
     messages = applyMessageViewFilter(loadedMessages);
+    messagePage = 1;
+    selectionScopeRequested = false;
     selectedMessageIds.clear();
     renderMessageList();
   };
@@ -279,22 +300,52 @@ async function renderInbox() {
   document.querySelector('#category-settings').addEventListener('click', () => openSettings('rules'));
   document.querySelector('#add-account').addEventListener('click', () => openQuickFolderDialog('accounts'));
   document.querySelector('#add-category').addEventListener('click', () => openQuickFolderDialog('categories'));
-  document.querySelector('#filter-drawer-close').addEventListener('click', () => setFilterDrawer(false));
   await update();
 }
 
 function updateBulkToolbar() {
   const selected = messages.filter((message) => selectedMessageIds.has(message.id));
+  const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
+  const pageMessages = messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE);
+  const selectedOnPage = pageMessages.filter((message) => selectedMessageIds.has(message.id));
   const selectAll = document.querySelector('#select-all-messages');
   if (!selectAll) return;
-  selectAll.checked = messages.length > 0 && selected.length === messages.length;
-  selectAll.indeterminate = selected.length > 0 && selected.length < messages.length;
+  selectAll.checked = pageMessages.length > 0 && selectedOnPage.length === pageMessages.length;
+  selectAll.indeterminate = selectedOnPage.length > 0 && selectedOnPage.length < pageMessages.length;
   document.querySelector('#selected-count').textContent = selected.length ? `已選 ${selected.length} 封` : `共 ${messages.length} 封`;
-  const filterActive = Object.values(messageViewFilter).some(Boolean);
+  const selectionScope = document.querySelector('#selection-scope');
+  selectionScope.hidden = !selectionScopeRequested;
+  document.querySelector('#select-current-page').textContent = `本頁 ${pageMessages.length} 封`;
+  const selectAllResults = document.querySelector('#select-all-results');
+  selectAllResults.textContent = `全部 ${messages.length} 封`;
+  selectAllResults.hidden = messages.length <= pageMessages.length;
+  const filterActive = Object.values(messageViewFilter).some(Boolean) || Boolean(inboxFilters.accountId || inboxFilters.category || inboxFilters.state !== 'all' || document.querySelector('#search-input')?.value);
+  const filterLabels = [];
+  if (inboxFilters.category) filterLabels.push(inboxFilters.category);
+  if (inboxFilters.accountId) {
+    const account = accounts.find((item) => String(item.id) === String(inboxFilters.accountId));
+    if (account) filterLabels.push(account.display_name || account.email);
+  }
+  if (messageViewFilter.sender) filterLabels.push(messageViewFilter.sender);
+  if (messageViewFilter.fromDate && messageViewFilter.fromDate === messageViewFilter.toDate) filterLabels.push(formatMessageGroupDate(`${messageViewFilter.fromDate}T12:00:00`));
+  else if (messageViewFilter.fromDate || messageViewFilter.toDate) filterLabels.push('日期');
+  if (messageViewFilter.subject) filterLabels.push(messageViewFilter.subject);
+  const stateLabels = { unread: '未讀', starred: '星號', archive: '封存', spam: '垃圾郵件', trash: '垃圾桶' };
+  if (stateLabels[inboxFilters.state]) filterLabels.push(stateLabels[inboxFilters.state]);
+  const searchText = document.querySelector('#search-input')?.value.trim();
+  if (searchText) filterLabels.push(searchText);
+  document.querySelector('#message-filter-label').textContent = filterLabels.length ? `篩選：${filterLabels.join('、')}` : '篩選';
   document.querySelector('#message-filter').classList.toggle('active', filterActive);
   document.querySelector('#message-filter').setAttribute('aria-pressed', String(filterActive));
-  document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && !['bulk-trash', 'message-filter'].includes(button.id); });
+  document.querySelector('#message-filter-reset').hidden = !filterActive;
+  document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && !['bulk-trash', 'message-filter', 'message-filter-reset'].includes(button.id); });
   document.querySelector('#bulk-star span').textContent = selected.length && selected.every((message) => message.is_starred) ? '☆' : '★';
+  document.querySelectorAll('.date-select').forEach((checkbox) => {
+    const group = messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey);
+    const selectedInGroup = group.filter((message) => selectedMessageIds.has(message.id)).length;
+    checkbox.checked = group.length > 0 && selectedInGroup === group.length;
+    checkbox.indeterminate = selectedInGroup > 0 && selectedInGroup < group.length;
+  });
 }
 
 async function toggleMessageStar(id) {
@@ -347,11 +398,35 @@ function bindBulkToolbar() {
   const selectAll = document.querySelector('#select-all-messages');
   if (!selectAll) return;
   selectAll.addEventListener('change', () => {
+    selectionScopeRequested = selectAll.checked;
+    const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
+    messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => {
+      if (selectAll.checked) selectedMessageIds.add(message.id); else selectedMessageIds.delete(message.id);
+    });
+    renderMessageList();
+  });
+  document.querySelector('#select-current-page').addEventListener('click', () => {
     selectedMessageIds.clear();
-    if (selectAll.checked) messages.forEach((message) => selectedMessageIds.add(message.id));
+    const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
+    messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => selectedMessageIds.add(message.id));
+    renderMessageList();
+  });
+  document.querySelector('#select-all-results').addEventListener('click', () => {
+    selectedMessageIds.clear();
+    messages.forEach((message) => selectedMessageIds.add(message.id));
     renderMessageList();
   });
   document.querySelector('#message-filter').addEventListener('click', openMessageFilterDialog);
+  document.querySelector('#message-filter-reset').addEventListener('click', async () => {
+    Object.assign(messageViewFilter, { fromDate: '', toDate: '', sender: '', subject: '' });
+    Object.assign(inboxFilters, { accountId: '', category: '', state: 'all' });
+    const search = document.querySelector('#search-input');
+    if (search) search.value = '';
+    selectedMessageIds.clear();
+    selectionScopeRequested = false;
+    await renderRoute();
+    showNotice('已重設全部篩選');
+  });
   document.querySelector('#bulk-star').addEventListener('click', async () => {
     const selected = messages.filter((message) => selectedMessageIds.has(message.id));
     const starred = !selected.every((message) => message.is_starred);
@@ -378,22 +453,83 @@ function bindBulkToolbar() {
 }
 
 function renderMessageList() {
-  const list = document.querySelector('#message-list');
+  const list = document.querySelector('#message-list-scroll');
+  const pagination = document.querySelector('#message-pagination');
   if (!messages.length) {
+    pagination.hidden = true;
+    pagination.innerHTML = '';
     list.innerHTML = `<div class="loading"><b>目前沒有郵件</b><p>${accounts.length ? '按「同步全部」取得最新郵件。' : '先到「信箱帳號」連線一個帳號。'}</p></div>`;
     updateBulkToolbar();
     return;
   }
-  list.innerHTML = messages.map((message) => `
+  const totalPages = Math.max(1, Math.ceil(messages.length / MESSAGE_PAGE_SIZE));
+  messagePage = Math.min(Math.max(messagePage, 1), totalPages);
+  const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
+  const pageMessages = messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE);
+  pagination.hidden = false;
+  pagination.innerHTML = `<button type="button" data-page-direction="previous" ${messagePage === 1 ? 'disabled' : ''}>上一頁</button><span>第 ${messagePage} / ${totalPages} 頁 · 本頁 ${pageMessages.length} 封 · 共 ${messages.length} 封</span><button type="button" data-page-direction="next" ${messagePage === totalPages ? 'disabled' : ''}>下一頁</button>`;
+  const groups = new Map();
+  pageMessages.forEach((message) => {
+    const key = messageDateKey(message.received_at);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(message);
+  });
+  const messageRow = (message) => `
     <div class="message-swipe" data-id="${message.id}">
       <div class="swipe-action archive"><span>⇥</span>封存</div><div class="swipe-action delete">刪除<span>⌫</span></div>
       <div class="message-row ${message.is_read ? '' : 'unread'} ${selectedMessageIds.has(message.id) ? 'batch-selected' : ''}" data-id="${message.id}" tabindex="0" role="button" aria-label="${escapeHtml(message.subject)}">
-        <div class="message-leading"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button></div>
-        <div class="message-summary"><div class="row-top"><span class="sender">${escapeHtml(message.sender_name || message.sender_email)}</span><time class="date">${formatDate(message.received_at)}</time></div>
-        <div class="subject">${escapeHtml(message.subject)}</div><div class="snippet">${escapeHtml(message.snippet)}</div>
-        <span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span></div>
+        <div class="message-primary-line"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button><div class="subject">${escapeHtml(message.subject)}</div><time class="date">${formatDate(message.received_at)}</time></div>
+        <div class="message-secondary-line"><span class="snippet">${escapeHtml(message.snippet)}</span><button class="sender message-source-filter" type="button" data-sender-filter="${escapeHtml(message.sender_name || message.sender_email)}">${escapeHtml(message.sender_name || message.sender_email)}</button><button class="category-pill message-category-filter" type="button" data-category-filter="${escapeHtml(message.category)}">${escapeHtml(message.category)}</button></div>
       </div>
-    </div>`).join('');
+    </div>`;
+  list.innerHTML = [...groups.entries()].map(([key, group]) => {
+    return `<section class="message-date-group" data-date-key="${key}">
+      <div class="date-divider">
+        <input class="date-select" type="checkbox" data-date-key="${key}" aria-label="選取 ${formatMessageGroupDate(group[0].received_at)} 的全部信件">
+        <span class="date-divider-line" aria-hidden="true"></span>
+        <button class="date-group-filter" type="button" data-date-filter="${key}" aria-label="只顯示 ${formatMessageGroupDate(group[0].received_at)} 的信件"><time datetime="${key}">${formatMessageGroupDate(group[0].received_at)}</time></button>
+      </div>
+      <div class="date-messages">${group.map(messageRow).join('')}</div>
+    </section>`;
+  }).join('');
+  pagination.querySelectorAll('[data-page-direction]').forEach((button) => button.addEventListener('click', () => {
+    messagePage += button.dataset.pageDirection === 'next' ? 1 : -1;
+    renderMessageList();
+    list.scrollTop = 0;
+  }));
+  list.querySelectorAll('.date-select').forEach((checkbox) => checkbox.addEventListener('change', () => {
+    messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey).forEach((message) => {
+      if (checkbox.checked) selectedMessageIds.add(message.id); else selectedMessageIds.delete(message.id);
+    });
+    renderMessageList();
+  }));
+  list.querySelectorAll('.message-source-filter').forEach((button) => button.addEventListener('click', () => {
+    const sender = button.dataset.senderFilter;
+    messageViewFilter.sender = messageViewFilter.sender === sender ? '' : sender;
+    messages = applyMessageViewFilter(loadedMessages);
+    messagePage = 1;
+    selectionScopeRequested = false;
+    selectedMessageIds.clear();
+    renderMessageList();
+    showNotice(messageViewFilter.sender ? `只顯示「${sender}」的信件` : '已取消寄件來源篩選');
+  }));
+  list.querySelectorAll('.message-category-filter').forEach((button) => button.addEventListener('click', () => {
+    const category = inboxFilters.category === button.dataset.categoryFilter ? '' : button.dataset.categoryFilter;
+    const target = [...document.querySelectorAll('#category-filters [data-category]')].find((item) => item.dataset.category === category);
+    if (target) target.click();
+  }));
+  list.querySelectorAll('.date-group-filter').forEach((button) => button.addEventListener('click', () => {
+    const key = button.dataset.dateFilter;
+    const active = messageViewFilter.fromDate === key && messageViewFilter.toDate === key;
+    messageViewFilter.fromDate = active ? '' : key;
+    messageViewFilter.toDate = active ? '' : key;
+    messages = applyMessageViewFilter(loadedMessages);
+    messagePage = 1;
+    selectionScopeRequested = false;
+    selectedMessageIds.clear();
+    renderMessageList();
+    showNotice(active ? '已取消日期篩選' : `只顯示 ${button.textContent.trim()} 的信件`);
+  }));
   list.querySelectorAll('.message-row').forEach((row) => {
     const id = Number(row.dataset.id);
     const open = (event) => { if (!row.dataset.ignoreClick && !event?.target.closest('button,input')) openMessage(id); };
@@ -772,6 +908,7 @@ messageFilterForm.addEventListener('submit', (event) => {
     subject: String(data.subject || '').trim(),
   });
   messages = applyMessageViewFilter(loadedMessages);
+  messagePage = 1;
   selectedMessageIds.clear();
   messageFilterDialog.close();
   renderMessageList();
@@ -780,6 +917,7 @@ messageFilterForm.addEventListener('submit', (event) => {
 document.querySelector('#message-filter-clear').addEventListener('click', () => {
   Object.assign(messageViewFilter, { fromDate: '', toDate: '', sender: '', subject: '' });
   messages = [...loadedMessages];
+  messagePage = 1;
   selectedMessageIds.clear();
   messageFilterDialog.close();
   renderMessageList();
@@ -793,6 +931,12 @@ document.querySelector('#help-done').addEventListener('click', () => helpDialog.
 [composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
 filterDrawerToggle.addEventListener('click', () => setFilterDrawer(!document.body.classList.contains('filters-open')));
 filterDrawerBackdrop.addEventListener('click', () => setFilterDrawer(false));
+document.addEventListener('pointerdown', (event) => {
+  if (!document.body.classList.contains('filters-open')) return;
+  const drawer = document.querySelector('#inbox-filters');
+  if (drawer?.contains(event.target) || filterDrawerToggle.contains(event.target)) return;
+  setFilterDrawer(false);
+});
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && document.body.classList.contains('filters-open')) setFilterDrawer(false); });
 document.querySelector('#download-message').addEventListener('click', () => { if (actionMessageId) downloadMessage(actionMessageId); });
 document.addEventListener('pointerdown', (event) => { if (!messageActionMenu.hidden && !messageActionMenu.contains(event.target)) hideMessageMenu(); });
