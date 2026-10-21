@@ -308,8 +308,9 @@ function bindMessageGestures(row, id) {
     deltaX = Math.max(-rowWidth, Math.min(rowWidth, dx));
     row.classList.add('dragging');
     row.style.transform = `translateX(${deltaX}px)`;
-    swipe.style.setProperty('--swipe-progress', String(Math.min(1, Math.abs(deltaX) / (rowWidth / 2))));
-    if (Math.abs(deltaX) >= rowWidth / 2) void commit(deltaX < 0 ? 'delete' : 'archive');
+    const actionThreshold = rowWidth * 0.75;
+    swipe.style.setProperty('--swipe-progress', String(Math.min(1, Math.abs(deltaX) / actionThreshold)));
+    if (Math.abs(deltaX) >= actionThreshold) void commit(deltaX < 0 ? 'delete' : 'archive');
   });
   const finish = async () => {
     if (!tracking) return;
