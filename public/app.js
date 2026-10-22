@@ -112,6 +112,8 @@ const demoApi = async (url, options = {}) => {
   if (readMatch) { const item = demoMessages.find((message) => message.id === Number(readMatch[1])); if (item) item.is_read = JSON.parse(options.body).read ? 1 : 0; return { ok: true }; }
   const starMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/star$/);
   if (starMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(starMatch[1])); if (item) item.is_starred = JSON.parse(options.body).starred ? 1 : 0; return { ok: true }; }
+  const categoryMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/category$/);
+  if (categoryMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(categoryMatch[1])); if (item) item.category = JSON.parse(options.body).category || '未分類'; return { ok: true }; }
   const moveMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/move$/);
   if (moveMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(moveMatch[1])); if (item) item.folder = JSON.parse(options.body).folder; return { ok: true }; }
   const archiveMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/archive$/);
@@ -142,8 +144,15 @@ const api = async (url, options = {}) => {
 if (demoMode) document.querySelector('#demo-label').hidden = false;
 
 function showNotice(message, error = false) {
+  const openDialog = document.querySelector('dialog[open]');
+  (openDialog || document.body).append(noticeRoot);
   noticeRoot.innerHTML = `<div class="notice ${error ? 'error' : ''}">${escapeHtml(message)}</div>`;
   setTimeout(() => { noticeRoot.innerHTML = ''; }, 4200);
+}
+
+function setComposeVisibility(visible) {
+  composeButton.hidden = !visible;
+  document.body.classList.toggle('compose-available', visible);
 }
 
 function setFilterDrawer(open) {
@@ -190,6 +199,7 @@ function accountOptions(selected = '') {
 
 function openQuickFolderDialog(type) {
   setFilterDrawer(false);
+  setComposeVisibility(false);
   quickFolderType = type;
   quickFolderForm.reset();
   const isAccount = type === 'accounts';
@@ -291,6 +301,8 @@ async function renderInbox() {
   document.querySelector('#mail-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-state]'); if (!button) return; inboxFilters.state = button.dataset.state; renderFilters(); update(); setFilterDrawer(false); });
   const openSettings = async (type) => {
     setFilterDrawer(false);
+    setComposeVisibility(false);
+    document.body.classList.add('settings-open');
     setSettingsState(type);
     if (type === 'accounts') await mountAccounts(inboxContent, true);
     else await mountRules(inboxContent, true);
@@ -705,28 +717,57 @@ async function openMessage(id) {
   const message = await api(`/api/messages/${id}`);
   document.querySelectorAll('.message-row').forEach((row) => row.classList.toggle('selected', Number(row.dataset.id) === id));
   const detail = document.querySelector('#message-detail');
+  const categories = [...new Set([...loadedMessages.map((item) => item.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  const messageIndex = messages.findIndex((item) => item.id === id);
   detail.classList.remove('empty-state');
   detail.innerHTML = `
-    <button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button>
-    <div><span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span></div>
+    <div class="detail-navigation"><button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button><label class="message-jump"><span>信件列表</span><select aria-label="切換信件">${messages.map((item) => `<option value="${item.id}" ${item.id === id ? 'selected' : ''}>${escapeHtml(item.subject)}</option>`).join('')}</select></label></div>
     <h2>${escapeHtml(message.subject)}</h2>
     <div class="message-meta"><b>${escapeHtml(message.sender_name || message.sender_email)}</b> &lt;${escapeHtml(message.sender_email)}&gt;<br><small>${formatDate(message.received_at)}</small></div>
+    <div class="message-labels"><span class="account-pill">${escapeHtml(message.account_email)}</span><label class="category-picker"><span class="sr-only">信件分類</span><select aria-label="切換信件分類"><option value="__new__">＋ 新增分類</option>${categories.map((category) => `<option value="${escapeHtml(category)}" ${category === message.category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}<option value="未分類" ${!message.category || message.category === '未分類' ? 'selected' : ''}>選擇分類</option></select></label></div>
     <div class="message-actions">
-      <button class="ghost" data-action="read">${message.is_read ? '標記未讀' : '標記已讀'}</button>
-      <button class="ghost" data-action="reply">回覆</button>
-      <button class="ghost" data-action="forward">轉寄</button>
-      <button class="danger" data-action="trash">移至垃圾桶</button>
+      <button class="ghost compact-action" data-action="star" aria-label="${message.is_starred ? '取消星號' : '加上星號'}" title="${message.is_starred ? '取消星號' : '加上星號'}">${message.is_starred ? '★' : '☆'}<span>星號</span></button>
+      <button class="ghost compact-action" data-action="read">◉<span>${message.is_read ? '標記未讀' : '標記已讀'}</span></button>
+      <button class="ghost compact-action" data-action="reply">↩<span>回覆</span></button>
+      <button class="ghost compact-action" data-action="forward">↪<span>轉寄</span></button>
+      <button class="ghost compact-action" data-action="spam">!<span>垃圾信</span></button>
+      <button class="danger compact-action trash-action" data-action="trash" aria-label="移至垃圾桶" title="移至垃圾桶">⌫</button>
     </div>
-    <div class="mail-body"></div>`;
+    <div class="mail-body"></div><div class="inline-reply" hidden></div>`;
   const layout = detail.closest('.mail-layout');
-  layout.dataset.listScrollY = String(window.scrollY);
+  layout.dataset.listScrollY = String(document.querySelector('#message-list-scroll')?.scrollTop || 0);
   layout.classList.add('mobile-detail-open');
-  if (matchMedia('(max-width: 700px)').matches) requestAnimationFrame(() => detail.scrollIntoView({ block: 'start' }));
+  document.body.classList.add('message-open');
+  document.querySelector('.mail-toolbar').hidden = true;
+  setComposeVisibility(true);
+  detail.scrollTop = 0;
   detail.querySelector('[data-action="back"]').addEventListener('click', () => {
     layout.classList.remove('mobile-detail-open');
+    document.body.classList.remove('message-open');
+    document.querySelector('.mail-toolbar').hidden = false;
     detail.classList.add('empty-state');
     detail.innerHTML = '<div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div>';
-    window.scrollTo({ top: Number(layout.dataset.listScrollY || 0), behavior: 'auto' });
+    const list = document.querySelector('#message-list-scroll');
+    if (list) list.scrollTop = Number(layout.dataset.listScrollY || 0);
+  });
+  detail.querySelector('.message-jump select').addEventListener('change', (event) => openMessage(Number(event.currentTarget.value)));
+  detail.querySelector('.category-picker select').addEventListener('change', async (event) => {
+    let category = event.currentTarget.value;
+    if (category === '__new__') {
+      category = prompt('輸入新分類名稱', '')?.trim();
+      if (!category) { event.currentTarget.value = message.category || '未分類'; return; }
+      if (!quickFolders.categories.some((folder) => folder.name === category)) {
+        quickFolders.categories.push({ id: `category-${Date.now()}`, name: category });
+        saveQuickFolders();
+      }
+    }
+    try {
+      await api(`/api/messages/${id}/category`, { method: 'PATCH', body: JSON.stringify({ category }) });
+      const local = demoMessages.find((item) => item.id === id); if (local) local.category = category;
+      const loaded = loadedMessages.find((item) => item.id === id); if (loaded) loaded.category = category;
+      showNotice(`已分類為「${category}」`);
+      await openMessage(id);
+    } catch (error) { showNotice(error.message, true); }
   });
   const body = detail.querySelector('.mail-body');
   if (message.html_body) {
@@ -741,18 +782,43 @@ async function openMessage(id) {
     try { await api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: !message.is_read }) }); await renderRoute(); }
     catch (error) { showNotice(error.message, true); setBusy(event.currentTarget, false); }
   });
+  detail.querySelector('[data-action="star"]').addEventListener('click', async () => { await toggleMessageStar(id); await openMessage(id); });
+  detail.querySelector('[data-action="spam"]').addEventListener('click', async () => {
+    try { await api(`/api/messages/${id}/move`, { method: 'PATCH', body: JSON.stringify({ folder: 'SPAM' }) }); showNotice('已標為垃圾信'); await renderRoute(); }
+    catch (error) { showNotice(error.message, true); }
+  });
   detail.querySelector('[data-action="trash"]').addEventListener('click', async (event) => {
     if (!confirm('確定將這封郵件移至遠端信箱的垃圾桶？')) return;
     setBusy(event.currentTarget, true);
     try { await api(`/api/messages/${id}`, { method: 'DELETE' }); showNotice('郵件已移至垃圾桶'); await renderRoute(); }
     catch (error) { showNotice(error.message, true); setBusy(event.currentTarget, false); }
   });
-  detail.querySelector('[data-action="reply"]').addEventListener('click', () => {
-    openCompose({ accountId: message.account_id, to: message.sender_email, subject: message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`, text: `\n\n--- 原始郵件 ---\n${message.text_body || message.snippet}`, inReplyTo: message.thread_id });
-  });
-  detail.querySelector('[data-action="forward"]').addEventListener('click', () => {
-    openCompose({ accountId: message.account_id, subject: message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`, text: `\n\n--- 轉寄郵件 ---\n寄件者：${message.sender_email}\n${message.text_body || message.snippet}` });
-  });
+  const openInlineComposer = (mode) => {
+    const reply = detail.querySelector('.inline-reply');
+    body.hidden = true;
+    reply.hidden = false;
+    const isReply = mode === 'reply';
+    reply.innerHTML = `<form class="inline-compose-form"><h3>${isReply ? '回覆' : '轉寄'}</h3><label>收件者<input name="to" type="email" value="${isReply ? escapeHtml(message.sender_email) : ''}" required></label><label>主旨<input name="subject" value="${escapeHtml(isReply ? (message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`) : (message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`))}" required></label><label>內容<textarea name="text" rows="8" required></textarea></label><div class="form-actions"><button class="primary" type="submit">寄出</button><button class="ghost" type="button" data-inline-cancel>取消</button></div></form>`;
+    reply.querySelector('[data-inline-cancel]').addEventListener('click', () => { reply.hidden = true; reply.innerHTML = ''; body.hidden = false; });
+    reply.querySelector('form').addEventListener('submit', async (event) => {
+      event.preventDefault(); const button = event.currentTarget.querySelector('[type="submit"]'); setBusy(button, true, '寄送中…');
+      const data = Object.fromEntries(new FormData(event.currentTarget)); data.accountId = message.account_id; data.cc = []; if (isReply) data.inReplyTo = message.thread_id;
+      try { await api('/api/send', { method: 'POST', body: JSON.stringify(data) }); showNotice('郵件已寄出'); reply.hidden = true; reply.innerHTML = ''; body.hidden = false; }
+      catch (error) { showNotice(error.message, true); setBusy(button, false); }
+    });
+    requestAnimationFrame(() => reply.querySelector('textarea').focus());
+  };
+  detail.querySelector('[data-action="reply"]').addEventListener('click', () => openInlineComposer('reply'));
+  detail.querySelector('[data-action="forward"]').addEventListener('click', () => openInlineComposer('forward'));
+  let detailTouchStart = null;
+  detail.addEventListener('touchstart', (event) => { if (!event.target.closest('input,textarea,select,button')) detailTouchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY }; }, { passive: true });
+  detail.addEventListener('touchend', (event) => {
+    if (!detailTouchStart) return;
+    const dx = event.changedTouches[0].clientX - detailTouchStart.x; const dy = event.changedTouches[0].clientY - detailTouchStart.y; detailTouchStart = null;
+    if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+    const target = dx < 0 ? messages[messageIndex + 1] : messages[messageIndex - 1];
+    if (target) openMessage(target.id); else showNotice(dx < 0 ? '已是最後一封信件' : '已是第一封信件');
+  }, { passive: true });
   if (!message.is_read) {
     api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: true }) }).catch((error) => showNotice(error.message, true));
   }
@@ -768,6 +834,7 @@ async function openCompose(draft = {}) {
 }
 
 async function mountAccounts(target, embedded = false) {
+  setComposeVisibility(false);
   await loadAccounts();
   target.innerHTML = `<div class="inline-settings">
     ${embedded ? '<div class="inline-panel-head"><div><h2>信箱帳號設定</h2><p>管理現有帳號或新增 Gmail、Yahoo 與一般信箱。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}
@@ -776,8 +843,8 @@ async function mountAccounts(target, embedded = false) {
       <div class="account-card card"><div class="account-icon">${account.provider === 'gmail' ? 'G' : 'IM'}</div><div class="account-info"><b>${escapeHtml(account.email)}</b><small>${account.provider === 'gmail' ? 'Google OAuth' : 'IMAP / SMTP'} · ${account.last_synced_at ? `上次同步 ${formatDate(account.last_synced_at)}` : '尚未同步'}</small></div><button class="ghost sync-one" data-id="${account.id}">同步</button><button class="danger delete-account" data-id="${account.id}">移除</button></div>`).join('') : '<div class="card loading">尚未加入任何信箱。</div>'}</div>
     <h2 class="section-title" style="margin-top:32px">新增信箱</h2>
     <div class="split">
-      <form id="gmail-form" class="form-card card"><h3>Gmail</h3><p>使用 Google OAuth 授權，不會儲存 Gmail 密碼。請先建立「桌面應用程式」OAuth 憑證，並加入重新導向 URI：<br><span class="code">${escapeHtml(location.origin)}/api/oauth/google/callback</span></p><label>Google Client ID<input name="clientId" required autocomplete="off"></label><label>Google Client Secret<input name="clientSecret" type="password" required autocomplete="off"></label><div class="form-actions"><button class="primary" type="submit">連線 Gmail</button></div></form>
-      <form id="imap-form" class="form-card card"><h3>Yahoo / 一般信箱</h3><p>Yahoo 請使用「應用程式密碼」，不要填入一般登入密碼。</p><label>Email<input name="email" type="email" required></label><label>應用程式密碼<input name="password" type="password" required autocomplete="off"></label><label>IMAP 主機<input name="imapHost" value="imap.mail.yahoo.com" required></label><label>SMTP 主機<input name="smtpHost" value="smtp.mail.yahoo.com" required></label><div class="split"><label>IMAP 連接埠<input name="imapPort" type="number" value="993"></label><label>SMTP 連接埠<input name="smtpPort" type="number" value="465"></label></div><div class="form-actions"><button class="primary" type="submit">加入信箱</button></div></form>
+      <form id="gmail-form" class="form-card card provider-connect-card"><h3>Gmail</h3><p>透過 Google 官方 OAuth 頁面授權，不會儲存 Gmail 密碼。</p><button id="google-oauth-console" class="ghost provider-external" type="button">開啟 Google OAuth 設定 ↗</button><label>Google Client ID<input name="clientId" required autocomplete="off"></label><label>Google Client Secret<input name="clientSecret" type="password" required autocomplete="off"></label><p class="quick-folder-note">Callback：<span class="code">${escapeHtml(location.origin)}/api/oauth/google/callback</span></p><div class="form-actions"><button class="primary provider-connect" type="submit">連結 Gmail ↗</button></div></form>
+      <form id="imap-form" class="form-card card provider-connect-card"><h3>Yahoo</h3><p>先到 Yahoo 官方帳號安全頁建立應用程式密碼，再回來完成連線。</p><button id="yahoo-authorize" class="ghost provider-external" type="button">開啟 Yahoo 授權頁 ↗</button><label>Yahoo Email<input name="email" type="email" required></label><label>應用程式密碼<input name="password" type="password" required autocomplete="off"></label><input name="imapHost" type="hidden" value="imap.mail.yahoo.com"><input name="smtpHost" type="hidden" value="smtp.mail.yahoo.com"><input name="imapPort" type="hidden" value="993"><input name="smtpPort" type="hidden" value="465"><div class="form-actions"><button class="primary provider-connect" type="submit">連結 Yahoo</button></div></form>
     </div></div>`;
   target.querySelector('.inline-panel-close')?.addEventListener('click', () => renderRoute());
   bindQuickFolderDeletes(target, () => mountAccounts(target, embedded));
@@ -787,6 +854,8 @@ async function mountAccounts(target, embedded = false) {
     catch (error) { showNotice(error.message, true); }
     finally { setBusy(button, false); }
   });
+  target.querySelector('#google-oauth-console').addEventListener('click', () => { window.open('https://console.cloud.google.com/apis/credentials', '_blank', 'noopener'); showNotice('請在 Google Cloud 建立 OAuth 用戶端並登記畫面上的 Callback'); });
+  target.querySelector('#yahoo-authorize').addEventListener('click', () => { window.open('https://login.yahoo.com/account/security', '_blank', 'noopener'); showNotice('請在 Yahoo 官方頁面建立應用程式密碼，再回到此頁完成連線'); });
   target.querySelector('#imap-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
     try { const data = Object.fromEntries(new FormData(event.currentTarget)); await api('/api/accounts/imap', { method: 'POST', body: JSON.stringify(data) }); showNotice('信箱已加入'); await mountAccounts(target, embedded); }
@@ -834,7 +903,9 @@ function renderHelp() {
 async function renderRoute() {
   if (location.hash !== '#inbox') history.replaceState(null, '', '#inbox');
   view.innerHTML = '';
+  document.body.classList.remove('settings-open', 'message-open');
   syncButton.hidden = false;
+  setComposeVisibility(true);
   title.textContent = '統一收件匣';
   try { await renderInbox(); view.focus(); } catch (error) { view.innerHTML = `<div class="card loading">載入失敗：${escapeHtml(error.message)}</div>`; }
 }
@@ -872,8 +943,8 @@ quickFolderForm.addEventListener('submit', async (event) => {
   showNotice(`已新增「${name}」`);
   await renderRoute();
 });
-document.querySelector('#quick-folder-cancel').addEventListener('click', () => quickFolderDialog.close());
-document.querySelector('#quick-folder-close').addEventListener('click', () => quickFolderDialog.close());
+document.querySelector('#quick-folder-cancel').addEventListener('click', () => { quickFolderDialog.close(); setComposeVisibility(!document.body.classList.contains('settings-open')); });
+document.querySelector('#quick-folder-close').addEventListener('click', () => { quickFolderDialog.close(); setComposeVisibility(!document.body.classList.contains('settings-open')); });
 cleanupForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(cleanupForm));
@@ -925,10 +996,13 @@ document.querySelector('#message-filter-clear').addEventListener('click', () => 
 });
 document.querySelector('#message-filter-cancel').addEventListener('click', () => messageFilterDialog.close());
 document.querySelector('#message-filter-close').addEventListener('click', () => messageFilterDialog.close());
-helpButton.addEventListener('click', () => helpDialog.showModal());
-document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
-document.querySelector('#help-done').addEventListener('click', () => helpDialog.close());
+const closeHelp = () => { helpDialog.close(); setComposeVisibility(!document.body.classList.contains('settings-open')); };
+helpButton.addEventListener('click', () => { setComposeVisibility(false); helpDialog.showModal(); });
+document.querySelector('#help-close').addEventListener('click', closeHelp);
+document.querySelector('#help-done').addEventListener('click', closeHelp);
 [composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+helpDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
+quickFolderDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
 filterDrawerToggle.addEventListener('click', () => setFilterDrawer(!document.body.classList.contains('filters-open')));
 filterDrawerBackdrop.addEventListener('click', () => setFilterDrawer(false));
 document.addEventListener('pointerdown', (event) => {

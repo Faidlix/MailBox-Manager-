@@ -100,6 +100,11 @@ app.patch('/api/messages/:id/star', asyncRoute(async (req, res) => {
   await mail.setStarred(Number(req.params.id), Boolean(req.body.starred));
   res.json({ ok: true });
 }));
+app.patch('/api/messages/:id/category', (req, res) => {
+  const category = String(req.body.category || '未分類').trim().slice(0, 60) || '未分類';
+  q.updateCategory.run(category, Number(req.params.id));
+  res.json({ ok: true, category });
+});
 app.patch('/api/messages/:id/move', asyncRoute(async (req, res) => {
   await mail.move(Number(req.params.id), String(req.body.folder || '').toUpperCase());
   res.json({ ok: true });
