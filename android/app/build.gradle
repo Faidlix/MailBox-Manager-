@@ -9,8 +9,9 @@ android {
         applicationId "com.faidlix.mailboxmanager"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 18
-        versionName "0.1.18"
+        // Sites version 19: 5599d3b26855d60ca61b3398a5550aae9f31819b
+        versionCode 19
+        versionName "0.1.19"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
