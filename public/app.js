@@ -33,6 +33,7 @@ const loadQuickFolders = () => {
 let quickFolders = loadQuickFolders();
 let quickFolderType = 'accounts';
 let cleanupMode = 'date';
+let activeDetailOutsideHandler = null;
 const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
 let loadedMessages = [];
 const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
@@ -261,10 +262,10 @@ async function renderInbox() {
     <label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label>
     <button id="message-filter" class="toolbar-action" type="button"><span aria-hidden="true">☷</span><span id="message-filter-label">篩選</span></button><button id="message-filter-reset" class="toolbar-action filter-reset" type="button" aria-label="重設全部篩選" title="重設全部篩選" hidden>×</button>
     <span id="selected-count" class="selected-count">未選取</span><div id="selection-scope" class="selection-scope" hidden><span>選取：</span><button id="select-current-page" type="button">本頁 100 封</button><button id="select-all-results" type="button">全部信件</button></div>
-    <button id="bulk-star" class="toolbar-action" type="button" disabled><span aria-hidden="true">★</span> 星號</button>
-    <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled><span aria-hidden="true">↪</span> 搬移信件</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-move-folder="INBOX">收件匣</button><button type="button" data-move-folder="ARCHIVE">封存</button><button type="button" data-move-folder="SPAM">垃圾郵件</button><button type="button" data-move-folder="TRASH">垃圾桶</button></div></div>
-    <button id="bulk-spam" class="toolbar-action" type="button" disabled><span aria-hidden="true">!</span> 垃圾信件</button>
-    <div class="toolbar-menu-wrap"><button id="bulk-trash" class="toolbar-action danger-action" type="button"><span aria-hidden="true">⌫</span> 垃圾桶</button><div id="trash-options" class="toolbar-menu trash-menu" hidden><button type="button" data-trash-mode="all"><b>全部信件</b><small>移除目前選取的全部信件</small></button><button type="button" data-trash-mode="unstarred"><b>排除星號</b><small>保留已加星的選取信件</small></button><button type="button" data-trash-mode="date"><b>指定日期之前</b><small>設定日期並清理較早的信件</small></button><button type="button" data-trash-mode="filter"><b>寄件者／關鍵字</b><small>依寄件者或信件內容條件清理</small></button></div></div>
+    <button id="bulk-star" class="toolbar-action icon-only" type="button" disabled aria-label="切換星號" title="星號"><span aria-hidden="true">★</span></button>
+    <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled>分類</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-bulk-category="__new__">＋ 新增分類</button>${categories.map((category) => `<button type="button" data-bulk-category="${escapeHtml(category)}">${escapeHtml(category)}</button>`).join('')}<button type="button" data-bulk-category="未分類">未分類</button></div></div>
+    <button id="bulk-spam" class="toolbar-action" type="button" disabled>垃圾信</button>
+    <div class="toolbar-menu-wrap"><button id="bulk-trash" class="toolbar-action danger-action icon-only" type="button" aria-label="垃圾桶" title="垃圾桶"><svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button><div id="trash-options" class="toolbar-menu trash-menu" hidden><button type="button" data-trash-mode="all"><b>全部信件</b><small>移除目前選取的全部信件</small></button><button type="button" data-trash-mode="unstarred"><b>排除星號</b><small>保留已加星的選取信件</small></button><button type="button" data-trash-mode="date"><b>指定日期之前</b><small>設定日期並清理較早的信件</small></button><button type="button" data-trash-mode="filter"><b>寄件者／關鍵字</b><small>依寄件者或信件內容條件清理</small></button></div></div>
   </div><div class="mail-layout"><div id="message-list" class="message-list card"><nav id="message-pagination" class="message-pagination" aria-label="信件分頁" hidden></nav><div id="message-list-scroll" class="message-list-scroll"></div></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>`;
   const setSettingsState = (active = '') => {
     document.querySelector('#account-settings').setAttribute('aria-pressed', String(active === 'accounts'));
@@ -375,6 +376,32 @@ async function moveSelectedMessages(folder, excludeStarred = false) {
   await moveMessages(targets, folder);
 }
 
+async function categorizeSelectedMessages(category) {
+  const selected = messages.filter((message) => selectedMessageIds.has(message.id));
+  if (!selected.length) { showNotice('請先選取信件', true); return; }
+  if (category === '__new__') {
+    category = prompt('輸入新分類名稱', '')?.trim();
+    if (!category) return;
+    if (!quickFolders.categories.some((folder) => folder.name === category)) {
+      quickFolders.categories.push({ id: `category-${Date.now()}`, name: category });
+      saveQuickFolders();
+    }
+  }
+  try {
+    await runInBatches(selected, (message) => api(`/api/messages/${message.id}/category`, { method: 'PATCH', body: JSON.stringify({ category }) }));
+    selected.forEach((message) => {
+      message.category = category;
+      const loaded = loadedMessages.find((item) => item.id === message.id);
+      if (loaded) loaded.category = category;
+      const demo = demoMessages.find((item) => item.id === message.id);
+      if (demo) demo.category = category;
+    });
+    selectedMessageIds.clear();
+    renderMessageList();
+    showNotice(`已將 ${selected.length} 封信件分類為「${category}」`);
+  } catch (error) { showNotice(error.message, true); }
+}
+
 async function runInBatches(items, task, size = 20) {
   for (let index = 0; index < items.length; index += size) await Promise.all(items.slice(index, index + size).map(task));
 }
@@ -445,9 +472,29 @@ function bindBulkToolbar() {
   });
   const moveMenu = document.querySelector('#move-options');
   const trashMenu = document.querySelector('#trash-options');
-  document.querySelector('#bulk-move').addEventListener('click', () => { moveMenu.hidden = !moveMenu.hidden; trashMenu.hidden = true; });
-  document.querySelector('#bulk-trash').addEventListener('click', () => { trashMenu.hidden = !trashMenu.hidden; moveMenu.hidden = true; });
-  moveMenu.querySelectorAll('[data-move-folder]').forEach((button) => button.addEventListener('click', () => { moveMenu.hidden = true; moveSelectedMessages(button.dataset.moveFolder); }));
+  const toggleToolbarMenu = (menu, otherMenu, trigger) => {
+    const opening = menu.hidden;
+    otherMenu.hidden = true;
+    otherMenu.classList.remove('floating-toolbar-menu');
+    menu.hidden = !opening;
+    if (!opening) { menu.classList.remove('floating-toolbar-menu'); return; }
+    if (matchMedia('(max-width:700px)').matches) {
+      const rect = trigger.getBoundingClientRect();
+      menu.classList.add('floating-toolbar-menu');
+      menu.style.setProperty('--menu-top', `${Math.min(rect.bottom + 6, innerHeight * .55)}px`);
+    }
+    setTimeout(() => document.addEventListener('click', (event) => {
+      if (!event.target.closest('.toolbar-menu-wrap')) {
+        menu.hidden = true;
+        menu.classList.remove('floating-toolbar-menu');
+      }
+    }, { once: true }), 0);
+  };
+  const moveTrigger = document.querySelector('#bulk-move');
+  const trashTrigger = document.querySelector('#bulk-trash');
+  moveTrigger.addEventListener('click', () => toggleToolbarMenu(moveMenu, trashMenu, moveTrigger));
+  trashTrigger.addEventListener('click', () => toggleToolbarMenu(trashMenu, moveMenu, trashTrigger));
+  moveMenu.querySelectorAll('[data-bulk-category]').forEach((button) => button.addEventListener('click', () => { moveMenu.hidden = true; categorizeSelectedMessages(button.dataset.bulkCategory); }));
   trashMenu.querySelectorAll('[data-trash-mode]').forEach((button) => button.addEventListener('click', () => {
     trashMenu.hidden = true;
     const mode = button.dataset.trashMode;
@@ -687,6 +734,10 @@ async function downloadMessage(id) {
 }
 
 async function openMessage(id) {
+  if (activeDetailOutsideHandler) {
+    document.removeEventListener('click', activeDetailOutsideHandler);
+    activeDetailOutsideHandler = null;
+  }
   const message = await api(`/api/messages/${id}`);
   document.querySelectorAll('.message-row').forEach((row) => row.classList.toggle('selected', Number(row.dataset.id) === id));
   const detail = document.querySelector('#message-detail');
@@ -694,19 +745,19 @@ async function openMessage(id) {
   const messageIndex = messages.findIndex((item) => item.id === id);
   detail.classList.remove('empty-state');
   detail.innerHTML = `
-    <div class="detail-navigation"><button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button><label class="message-jump"><span>信件列表</span><select aria-label="切換信件">${messages.map((item) => `<option value="${item.id}" ${item.id === id ? 'selected' : ''}>${escapeHtml(item.subject)}</option>`).join('')}</select></label></div>
+    <div class="detail-navigation"><button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button><div class="detail-picker message-jump"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.subject)}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden>${messages.map((item) => `<button type="button" role="menuitem" data-message-id="${item.id}" ${item.id === id ? 'aria-current="true"' : ''}>${escapeHtml(item.subject)}</button>`).join('')}</div></div></div>
     <h2>${escapeHtml(message.subject)}</h2>
-    <div class="message-meta"><b>${escapeHtml(message.sender_name || message.sender_email)}</b> &lt;${escapeHtml(message.sender_email)}&gt;<br><small>${formatDate(message.received_at)}</small></div>
-    <div class="message-labels"><span class="account-pill">${escapeHtml(message.account_email)}</span><label class="category-picker"><span class="sr-only">信件分類</span><select aria-label="切換信件分類"><option value="__new__">＋ 新增分類</option>${categories.map((category) => `<option value="${escapeHtml(category)}" ${category === message.category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}<option value="未分類" ${!message.category || message.category === '未分類' ? 'selected' : ''}>選擇分類</option></select></label></div>
+    <div class="message-meta"><div class="message-meta-line"><span title="${escapeHtml(message.sender_email)}"><b>${escapeHtml(message.sender_name || message.sender_email)}</b></span><small>${formatDate(message.received_at)}</small></div></div>
+    <div class="message-labels"><span class="account-pill">${escapeHtml(message.account_email)}</span><div class="detail-picker category-picker"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.category || '選擇分類')}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden><button type="button" role="menuitem" data-category="__new__">＋ 新增分類</button>${categories.map((category) => `<button type="button" role="menuitem" data-category="${escapeHtml(category)}" ${category === message.category ? 'aria-current="true"' : ''}>${escapeHtml(category)}</button>`).join('')}<button type="button" role="menuitem" data-category="未分類">未分類</button></div></div></div>
     <div class="message-actions">
-      <button class="ghost compact-action" data-action="star" aria-label="${message.is_starred ? '取消星號' : '加上星號'}" title="${message.is_starred ? '取消星號' : '加上星號'}">${message.is_starred ? '★' : '☆'}<span>星號</span></button>
+      <button class="ghost compact-action" data-action="star" aria-label="${message.is_starred ? '取消星號' : '加上星號'}" title="${message.is_starred ? '取消星號' : '加上星號'}">${message.is_starred ? '★' : '☆'}</button>
       <button class="ghost compact-action" data-action="read"><span>${message.is_read ? '標記未讀' : '標記已讀'}</span></button>
       <button class="ghost compact-action" data-action="reply"><span>回覆</span></button>
       <button class="ghost compact-action" data-action="forward"><span>轉寄</span></button>
       <button class="ghost compact-action" data-action="spam"><span>標為垃圾信</span></button>
-      <button class="danger compact-action trash-action" data-action="trash" aria-label="移至垃圾桶" title="移至垃圾桶">⌫</button>
+      <button class="danger compact-action trash-action" data-action="trash" aria-label="移至垃圾桶" title="移至垃圾桶"><svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button>
     </div>
-    <div class="mail-body"></div><div class="inline-reply" hidden></div>`;
+    <div class="message-content-scroll"><div class="mail-body"></div><div class="inline-reply" hidden></div></div>`;
   const layout = detail.closest('.mail-layout');
   layout.dataset.listScrollY = String(document.querySelector('#message-list-scroll')?.scrollTop || 0);
   layout.classList.add('mobile-detail-open');
@@ -715,6 +766,8 @@ async function openMessage(id) {
   setComposeVisibility(true);
   detail.scrollTop = 0;
   detail.querySelector('[data-action="back"]').addEventListener('click', () => {
+    if (activeDetailOutsideHandler) document.removeEventListener('click', activeDetailOutsideHandler);
+    activeDetailOutsideHandler = null;
     layout.classList.remove('mobile-detail-open');
     document.body.classList.remove('message-open');
     document.querySelector('.mail-toolbar').hidden = false;
@@ -723,12 +776,33 @@ async function openMessage(id) {
     const list = document.querySelector('#message-list-scroll');
     if (list) list.scrollTop = Number(layout.dataset.listScrollY || 0);
   });
-  detail.querySelector('.message-jump select').addEventListener('change', (event) => openMessage(Number(event.currentTarget.value)));
-  detail.querySelector('.category-picker select').addEventListener('change', async (event) => {
-    let category = event.currentTarget.value;
+  const closeDetailPickers = (except = null) => detail.querySelectorAll('.detail-picker').forEach((picker) => {
+    if (picker === except) return;
+    picker.querySelector('.detail-picker-menu').hidden = true;
+    picker.querySelector('.detail-picker-trigger').setAttribute('aria-expanded', 'false');
+  });
+  detail.querySelectorAll('.detail-picker-trigger').forEach((trigger) => trigger.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const picker = trigger.closest('.detail-picker');
+    const menu = picker.querySelector('.detail-picker-menu');
+    const opening = menu.hidden;
+    closeDetailPickers(picker);
+    menu.hidden = !opening;
+    trigger.setAttribute('aria-expanded', String(opening));
+  }));
+  const outsidePickerHandler = (event) => { if (!detail.contains(event.target) || !event.target.closest('.detail-picker')) closeDetailPickers(); };
+  activeDetailOutsideHandler = outsidePickerHandler;
+  document.addEventListener('click', outsidePickerHandler);
+  detail.querySelectorAll('.message-jump [data-message-id]').forEach((button) => button.addEventListener('click', () => {
+    document.removeEventListener('click', outsidePickerHandler);
+    activeDetailOutsideHandler = null;
+    openMessage(Number(button.dataset.messageId));
+  }));
+  detail.querySelectorAll('.category-picker [data-category]').forEach((button) => button.addEventListener('click', async () => {
+    let category = button.dataset.category;
     if (category === '__new__') {
       category = prompt('輸入新分類名稱', '')?.trim();
-      if (!category) { event.currentTarget.value = message.category || '未分類'; return; }
+      if (!category) { closeDetailPickers(); return; }
       if (!quickFolders.categories.some((folder) => folder.name === category)) {
         quickFolders.categories.push({ id: `category-${Date.now()}`, name: category });
         saveQuickFolders();
@@ -739,9 +813,11 @@ async function openMessage(id) {
       const local = demoMessages.find((item) => item.id === id); if (local) local.category = category;
       const loaded = loadedMessages.find((item) => item.id === id); if (loaded) loaded.category = category;
       showNotice(`已分類為「${category}」`);
+      document.removeEventListener('click', outsidePickerHandler);
+      activeDetailOutsideHandler = null;
       await openMessage(id);
     } catch (error) { showNotice(error.message, true); }
-  });
+  }));
   const body = detail.querySelector('.mail-body');
   if (message.html_body) {
     const iframe = document.createElement('iframe');
@@ -771,7 +847,7 @@ async function openMessage(id) {
     body.hidden = true;
     reply.hidden = false;
     const isReply = mode === 'reply';
-    reply.innerHTML = `<form class="inline-compose-form"><h3>${isReply ? '回覆' : '轉寄'}</h3><label>收件者<input name="to" type="email" value="${isReply ? escapeHtml(message.sender_email) : ''}" required></label><label>主旨<input name="subject" value="${escapeHtml(isReply ? (message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`) : (message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`))}" required></label><label>內容<textarea name="text" rows="8" required></textarea></label><div class="form-actions"><button class="primary" type="submit">寄出</button><button class="ghost" type="button" data-inline-cancel>取消</button></div></form>`;
+    reply.innerHTML = `<form class="inline-compose-form"><h3>${isReply ? '回覆' : '轉寄'}</h3><label>收件者<input name="to" type="email" value="${isReply ? escapeHtml(message.sender_email) : ''}" required></label><label>主旨<input name="subject" value="${escapeHtml(isReply ? (message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`) : (message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`))}" required></label><label>內容<textarea name="text" rows="8" required></textarea></label><div class="form-actions"><button class="ghost" type="button" data-inline-cancel>取消</button><button class="primary" type="submit">寄出</button></div></form>`;
     reply.querySelector('[data-inline-cancel]').addEventListener('click', () => { reply.hidden = true; reply.innerHTML = ''; body.hidden = false; });
     reply.querySelector('form').addEventListener('submit', async (event) => {
       event.preventDefault(); const button = event.currentTarget.querySelector('[type="submit"]'); setBusy(button, true, '寄送中…');
