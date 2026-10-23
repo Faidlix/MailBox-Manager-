@@ -352,12 +352,6 @@ function updateBulkToolbar() {
   document.querySelector('#message-filter-reset').hidden = !filterActive;
   document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && !['bulk-trash', 'message-filter', 'message-filter-reset'].includes(button.id); });
   document.querySelector('#bulk-star span').textContent = selected.length && selected.every((message) => message.is_starred) ? '☆' : '★';
-  document.querySelectorAll('.date-select').forEach((checkbox) => {
-    const group = messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey);
-    const selectedInGroup = group.filter((message) => selectedMessageIds.has(message.id)).length;
-    checkbox.checked = group.length > 0 && selectedInGroup === group.length;
-    checkbox.indeterminate = selectedInGroup > 0 && selectedInGroup < group.length;
-  });
 }
 
 async function toggleMessageStar(id) {
@@ -480,40 +474,19 @@ function renderMessageList() {
   const pageMessages = messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE);
   pagination.hidden = false;
   pagination.innerHTML = `<button type="button" data-page-direction="previous" ${messagePage === 1 ? 'disabled' : ''}>上一頁</button><span>第 ${messagePage} / ${totalPages} 頁 · 本頁 ${pageMessages.length} 封 · 共 ${messages.length} 封</span><button type="button" data-page-direction="next" ${messagePage === totalPages ? 'disabled' : ''}>下一頁</button>`;
-  const groups = new Map();
-  pageMessages.forEach((message) => {
-    const key = messageDateKey(message.received_at);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(message);
-  });
   const messageRow = (message) => `
     <div class="message-swipe" data-id="${message.id}">
       <div class="swipe-action archive"><span>⇥</span>封存</div><div class="swipe-action delete">刪除<span>⌫</span></div>
       <div class="message-row ${message.is_read ? '' : 'unread'} ${selectedMessageIds.has(message.id) ? 'batch-selected' : ''}" data-id="${message.id}" tabindex="0" role="button" aria-label="${escapeHtml(message.subject)}">
-        <div class="message-primary-line"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button><div class="subject">${escapeHtml(message.subject)}</div><time class="date">${formatDate(message.received_at)}</time></div>
+        <div class="message-primary-line"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button><div class="subject">${escapeHtml(message.subject)}</div><button class="date message-date-filter" type="button" data-date-filter="${messageDateKey(message.received_at)}" aria-label="只顯示 ${formatMessageGroupDate(message.received_at)} 的信件">${formatMessageGroupDate(message.received_at)}</button></div>
         <div class="message-secondary-line"><span class="snippet">${escapeHtml(message.snippet)}</span><button class="sender message-source-filter" type="button" data-sender-filter="${escapeHtml(message.sender_name || message.sender_email)}">${escapeHtml(message.sender_name || message.sender_email)}</button><button class="category-pill message-category-filter" type="button" data-category-filter="${escapeHtml(message.category)}">${escapeHtml(message.category)}</button></div>
       </div>
     </div>`;
-  list.innerHTML = [...groups.entries()].map(([key, group]) => {
-    return `<section class="message-date-group" data-date-key="${key}">
-      <div class="date-divider">
-        <input class="date-select" type="checkbox" data-date-key="${key}" aria-label="選取 ${formatMessageGroupDate(group[0].received_at)} 的全部信件">
-        <span class="date-divider-line" aria-hidden="true"></span>
-        <button class="date-group-filter" type="button" data-date-filter="${key}" aria-label="只顯示 ${formatMessageGroupDate(group[0].received_at)} 的信件"><time datetime="${key}">${formatMessageGroupDate(group[0].received_at)}</time></button>
-      </div>
-      <div class="date-messages">${group.map(messageRow).join('')}</div>
-    </section>`;
-  }).join('');
+  list.innerHTML = pageMessages.map(messageRow).join('');
   pagination.querySelectorAll('[data-page-direction]').forEach((button) => button.addEventListener('click', () => {
     messagePage += button.dataset.pageDirection === 'next' ? 1 : -1;
     renderMessageList();
     list.scrollTop = 0;
-  }));
-  list.querySelectorAll('.date-select').forEach((checkbox) => checkbox.addEventListener('change', () => {
-    messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey).forEach((message) => {
-      if (checkbox.checked) selectedMessageIds.add(message.id); else selectedMessageIds.delete(message.id);
-    });
-    renderMessageList();
   }));
   list.querySelectorAll('.message-source-filter').forEach((button) => button.addEventListener('click', () => {
     const sender = button.dataset.senderFilter;
@@ -530,7 +503,7 @@ function renderMessageList() {
     const target = [...document.querySelectorAll('#category-filters [data-category]')].find((item) => item.dataset.category === category);
     if (target) target.click();
   }));
-  list.querySelectorAll('.date-group-filter').forEach((button) => button.addEventListener('click', () => {
+  list.querySelectorAll('.message-date-filter').forEach((button) => button.addEventListener('click', () => {
     const key = button.dataset.dateFilter;
     const active = messageViewFilter.fromDate === key && messageViewFilter.toDate === key;
     messageViewFilter.fromDate = active ? '' : key;
@@ -727,10 +700,10 @@ async function openMessage(id) {
     <div class="message-labels"><span class="account-pill">${escapeHtml(message.account_email)}</span><label class="category-picker"><span class="sr-only">信件分類</span><select aria-label="切換信件分類"><option value="__new__">＋ 新增分類</option>${categories.map((category) => `<option value="${escapeHtml(category)}" ${category === message.category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}<option value="未分類" ${!message.category || message.category === '未分類' ? 'selected' : ''}>選擇分類</option></select></label></div>
     <div class="message-actions">
       <button class="ghost compact-action" data-action="star" aria-label="${message.is_starred ? '取消星號' : '加上星號'}" title="${message.is_starred ? '取消星號' : '加上星號'}">${message.is_starred ? '★' : '☆'}<span>星號</span></button>
-      <button class="ghost compact-action" data-action="read">◉<span>${message.is_read ? '標記未讀' : '標記已讀'}</span></button>
-      <button class="ghost compact-action" data-action="reply">↩<span>回覆</span></button>
-      <button class="ghost compact-action" data-action="forward">↪<span>轉寄</span></button>
-      <button class="ghost compact-action" data-action="spam">!<span>垃圾信</span></button>
+      <button class="ghost compact-action" data-action="read"><span>${message.is_read ? '標記未讀' : '標記已讀'}</span></button>
+      <button class="ghost compact-action" data-action="reply"><span>回覆</span></button>
+      <button class="ghost compact-action" data-action="forward"><span>轉寄</span></button>
+      <button class="ghost compact-action" data-action="spam"><span>標為垃圾信</span></button>
       <button class="danger compact-action trash-action" data-action="trash" aria-label="移至垃圾桶" title="移至垃圾桶">⌫</button>
     </div>
     <div class="mail-body"></div><div class="inline-reply" hidden></div>`;
@@ -816,8 +789,11 @@ async function openMessage(id) {
     if (!detailTouchStart) return;
     const dx = event.changedTouches[0].clientX - detailTouchStart.x; const dy = event.changedTouches[0].clientY - detailTouchStart.y; detailTouchStart = null;
     if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
-    const target = dx < 0 ? messages[messageIndex + 1] : messages[messageIndex - 1];
-    if (target) openMessage(target.id); else showNotice(dx < 0 ? '已是最後一封信件' : '已是第一封信件');
+    if (!messages.length || messageIndex < 0) return;
+    const targetIndex = dx < 0
+      ? (messageIndex - 1 + messages.length) % messages.length
+      : (messageIndex + 1) % messages.length;
+    openMessage(messages[targetIndex].id);
   }, { passive: true });
   if (!message.is_read) {
     api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: true }) }).catch((error) => showNotice(error.message, true));

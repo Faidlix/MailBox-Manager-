@@ -16,6 +16,10 @@
 .compact-action:first-child{font-size:1.15rem}
 .compact-action span{font-size:.72rem}
 .trash-action{margin-left:auto;font-size:1.15rem}
+.message-primary-line .message-date-filter{max-width:none;padding:5px 8px;border:1px solid #d3dbd2;border-radius:999px;background:#f1f4ee;color:#315848;font-size:.72rem;font-weight:800;line-height:1;white-space:nowrap}
+.message-primary-line .message-date-filter:hover,.message-primary-line .message-date-filter:focus-visible{border-color:var(--green);background:#e7ede4;outline:none}
+.message-secondary-line .message-source-filter{padding:5px 9px;border:1px solid #c8d5cb;border-radius:999px;background:#e7ede4;color:#315848;font-weight:850;line-height:1.1}
+.message-secondary-line .message-source-filter:hover,.message-secondary-line .message-source-filter:focus-visible{border-color:var(--green);background:#dce9df;text-decoration:none;outline:none}
 .inline-reply{margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:#f7f8f3}
 .inline-compose-form{display:grid;gap:12px}
 .inline-compose-form h3{margin:0}
@@ -35,16 +39,20 @@
   body.settings-open #inbox-content{overflow-x:hidden;overflow-y:auto;padding-bottom:24px}
   .message-list{border:0!important;box-shadow:none!important}
   .message-detail{border:0!important;box-shadow:none!important;padding:12px 10px 82px!important}
-  .detail-navigation{position:sticky;z-index:8;top:0;margin:-12px -10px 12px;padding:10px;background:var(--card);border-bottom:1px solid var(--line)}
+  .detail-navigation{position:static;margin:0 0 14px;padding:0 0 10px;background:var(--card);border-bottom:1px solid var(--line)}
   .detail-navigation .mobile-back{display:inline-flex!important;flex:0 0 auto;margin:0;padding:8px 10px;font-size:.78rem}
   .message-jump{flex:1;justify-content:flex-end}
   .message-jump span{display:none}
   .message-jump select{width:min(48vw,240px);height:38px;font-size:.75rem}
   .message-detail h2{margin-top:10px}
   .message-actions{gap:4px;margin:12px 0}
-  .compact-action{min-width:38px;width:38px;height:38px;padding:0;font-size:1rem}
-  .compact-action span{display:none}
+  .compact-action{min-width:0;width:auto;height:38px;padding:0 7px;font-size:.7rem}
+  .compact-action:first-child,.trash-action{min-width:38px;width:38px;padding:0;font-size:1rem}
+  .compact-action span{display:inline;font-size:.68rem}
+  .compact-action:first-child span{display:none}
   .trash-action{margin-left:auto}
+  .message-primary-line .message-date-filter{font-size:.66rem;padding:5px 6px}
+  .message-secondary-line .message-source-filter{font-size:.7rem;padding:4px 7px}
   .category-picker select{max-width:160px}
   .compose-fab[hidden]{display:none!important}
   #notice{left:8px;right:8px;top:max(8px,env(safe-area-inset-top));max-width:none}
