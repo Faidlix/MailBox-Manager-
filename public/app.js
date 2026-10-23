@@ -17,6 +17,8 @@ const messageFilterDialog = document.querySelector('#message-filter-dialog');
 const messageFilterForm = document.querySelector('#message-filter-form');
 const messageDownloadDialog = document.querySelector('#message-download-dialog');
 const messageDownloadForm = document.querySelector('#message-download-form');
+const settingsDialog = document.querySelector('#settings-dialog');
+const settingsContent = document.querySelector('#settings-content');
 const filterDrawerToggle = document.querySelector('#filter-drawer-toggle');
 const filterDrawerBackdrop = document.querySelector('#filter-drawer-backdrop');
 const messageActionMenu = document.querySelector('#message-action-menu');
@@ -42,6 +44,11 @@ let activeSelectionOutsideHandler = null;
 let activeMessageRequest = 0;
 let downloadMessageContext = null;
 let exportSession = null;
+let refreshInboxData = null;
+let autoSyncRunning = false;
+let autoSyncRefreshPending = false;
+let lastAutoSync = 0;
+let handledHash = location.hash;
 const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
 let loadedMessages = [];
 const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
@@ -284,27 +291,41 @@ async function renderInbox() {
     document.querySelector('#category-settings').setAttribute('aria-pressed', String(active === 'rules'));
   };
   const renderFilters = () => {
-    document.querySelector('#account-filters').innerHTML = `<button class="filter-chip ${inboxFilters.accountId ? '' : 'active'}" data-account="">所有帳號</button>${accounts.map((account) => `<button class="filter-chip ${String(inboxFilters.accountId) === String(account.id) ? 'active' : ''}" data-account="${account.id}"><span class="chip-dot"></span>${escapeHtml(account.display_name || account.email)}</button>`).join('')}${quickFolders.accounts.map((folder) => `<button class="filter-chip quick-folder-chip" data-quick-account="${escapeHtml(folder.id)}"><span class="chip-dot"></span>${escapeHtml(folder.name)}</button>`).join('')}`;
-    document.querySelector('#category-filters').innerHTML = `<button class="filter-chip ${inboxFilters.category ? '' : 'active'}" data-category="">所有分類</button>${categories.map((category) => `<button class="filter-chip ${inboxFilters.category === category ? 'active' : ''}" data-category="${escapeHtml(category)}"><span class="chip-dot"></span>${escapeHtml(category)}</button>`).join('')}`;
+    document.querySelector('#account-filters').innerHTML = `<button class="filter-chip ${inboxFilters.accountId ? '' : 'active'}" data-account="">所有信箱</button>${accounts.map((account) => `<button class="filter-chip ${String(inboxFilters.accountId) === String(account.id) ? 'active' : ''}" data-account="${account.id}"><span class="chip-dot"></span>${escapeHtml(account.display_name || account.email)}</button>`).join('')}${quickFolders.accounts.map((folder) => `<button class="filter-chip quick-folder-chip" data-quick-account="${escapeHtml(folder.id)}"><span class="chip-dot"></span>${escapeHtml(folder.name)}</button>`).join('')}`;
+    const currentCategories = [...new Set([...categories, ...loadedMessages.map((item) => item.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])];
+    document.querySelector('#category-filters').innerHTML = `<button class="filter-chip ${inboxFilters.category ? '' : 'active'}" data-category="">全部</button>${currentCategories.map((category) => `<button class="filter-chip ${inboxFilters.category === category ? 'active' : ''}" data-category="${escapeHtml(category)}"><span class="chip-dot"></span>${escapeHtml(category)}</button>`).join('')}`;
     document.querySelector('#mail-filters').innerHTML = states.map(([value, label]) => `<button class="filter-chip ${inboxFilters.state === value ? 'active' : ''}" data-state="${value}">${label}</button>`).join('');
   };
   inboxContent.innerHTML = mailShell();
   bindBulkToolbar();
   renderFilters();
-  const update = async () => {
+  let updateRevision = 0;
+  const update = async ({ preserve = false } = {}) => {
+    const revision = ++updateRevision;
+    if (!inboxContent.isConnected) return;
+    const scrollY = document.querySelector('#message-list-scroll')?.scrollTop || 0;
     if (!document.querySelector('#message-list')) { inboxContent.innerHTML = mailShell(); bindBulkToolbar(); }
     setSettingsState();
     const search = document.querySelector('#search-input').value;
     const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state, limit: '1000' });
-    document.querySelector('#message-pagination').hidden = true;
-    document.querySelector('#message-list-scroll').innerHTML = '<div class="loading">載入郵件中…</div>';
-    loadedMessages = await api(`/api/messages?${query}`);
+    if (!preserve) {
+      document.querySelector('#message-pagination').hidden = true;
+      document.querySelector('#message-list-scroll').innerHTML = '<div class="loading">載入郵件中…</div>';
+    }
+    const result = await api(`/api/messages?${query}`);
+    if (!inboxContent.isConnected || revision !== updateRevision) return;
+    if (preserve && (document.body.classList.contains('message-open') || document.querySelector('dialog[open]'))) { autoSyncRefreshPending = true; return; }
+    loadedMessages = result;
     messages = applyMessageViewFilter(loadedMessages);
-    messagePage = 1;
-    selectionScopeRequested = false;
-    selectedMessageIds.clear();
+    if (!preserve) {
+      messagePage = 1;
+      selectionScopeRequested = false;
+      selectedMessageIds.clear();
+    } else for (const id of selectedMessageIds) if (!messages.some((message) => message.id === id)) selectedMessageIds.delete(id);
     renderMessageList();
+    if (preserve) document.querySelector('#message-list-scroll').scrollTop = scrollY;
   };
+  refreshInboxData = update;
   let timer;
   document.querySelector('#search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(update, 250); });
   document.querySelector('#search-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') setFilterDrawer(false); });
@@ -315,11 +336,25 @@ async function renderInbox() {
   const openSettings = async (type) => {
     setFilterDrawer(false);
     setComposeVisibility(false);
-    document.body.classList.add('settings-open');
     setSettingsState(type);
-    if (type === 'accounts') await mountAccounts(inboxContent, true);
-    else await mountRules(inboxContent, true);
-    requestAnimationFrame(() => inboxContent.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    settingsContent.innerHTML = '<div class="loading">載入設定中…</div>';
+    settingsDialog.showModal();
+    try {
+      if (type === 'accounts') await mountAccounts(settingsContent, true);
+      else await mountRules(settingsContent, true);
+    } catch (error) { settingsDialog.close(); showNotice(error.message, true); }
+  };
+  settingsDialog.onclose = async () => {
+    setSettingsState();
+    setComposeVisibility(!document.body.classList.contains('message-open'));
+    try {
+      await loadAccounts();
+      if (!inboxContent.isConnected) return;
+      if (inboxFilters.accountId && !accounts.some((account) => String(account.id) === String(inboxFilters.accountId))) inboxFilters.accountId = '';
+      renderFilters();
+      autoSyncRefreshPending = false;
+      await update({ preserve: true });
+    } catch (error) { showNotice(error.message, true); }
   };
   document.querySelector('#account-settings').addEventListener('click', () => openSettings('accounts'));
   document.querySelector('#category-settings').addEventListener('click', () => openSettings('rules'));
@@ -917,6 +952,44 @@ async function openMessageDownloadDialog(message) {
   await preparing;
 }
 
+function updateMessageHistory(id) {
+  const hash = `#inbox/message/${id}`;
+  if (location.hash !== hash) {
+    const state = { mailboxView: 'message', messageId: id };
+    if (document.body.classList.contains('message-open')) history.replaceState(state, '', hash);
+    else history.pushState(state, '', hash);
+  }
+  handledHash = hash;
+}
+
+function closeMessageDetail() {
+  activeMessageRequest += 1;
+  if (activeDetailOutsideHandler) document.removeEventListener('click', activeDetailOutsideHandler);
+  activeDetailOutsideHandler = null;
+  const detail = document.querySelector('#message-detail');
+  const layout = detail?.closest('.mail-layout');
+  if (!layout) return;
+  layout.classList.remove('mobile-detail-open');
+  document.body.classList.remove('message-open');
+  document.querySelector('.mail-toolbar').hidden = false;
+  setComposeVisibility(true);
+  detail.classList.add('empty-state');
+  detail.innerHTML = '';
+  detail.ontouchstart = null; detail.ontouchend = null;
+  const list = document.querySelector('#message-list-scroll');
+  if (list) list.scrollTop = Number(layout.dataset.listScrollY || 0);
+  if (autoSyncRefreshPending) {
+    autoSyncRefreshPending = false;
+    refreshInboxData?.({ preserve: true }).catch((error) => showNotice(error.message, true));
+  }
+}
+
+function returnToMessageList() {
+  closeMessageDetail();
+  if (history.state?.mailboxView === 'message') history.back();
+  else { history.replaceState({ mailboxView: 'list' }, '', '#inbox'); handledHash = '#inbox'; }
+}
+
 async function openMessage(id) {
   const requestToken = ++activeMessageRequest;
   if (activeDetailOutsideHandler) {
@@ -961,25 +1034,14 @@ async function openMessage(id) {
       <button class="danger compact-action trash-action" data-action="trash" aria-label="移至垃圾桶" title="移至垃圾桶"><svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button>
     </div>`;
   const layout = detail.closest('.mail-layout');
-  layout.dataset.listScrollY = String(document.querySelector('#message-list-scroll')?.scrollTop || 0);
+  if (!document.body.classList.contains('message-open')) layout.dataset.listScrollY = String(document.querySelector('#message-list-scroll')?.scrollTop || 0);
+  updateMessageHistory(id);
   layout.classList.add('mobile-detail-open');
   document.body.classList.add('message-open');
   document.querySelector('.mail-toolbar').hidden = true;
   setComposeVisibility(false);
   detail.scrollTop = 0;
-  detail.querySelector('[data-action="back"]').addEventListener('click', () => {
-    activeMessageRequest += 1;
-    if (activeDetailOutsideHandler) document.removeEventListener('click', activeDetailOutsideHandler);
-    activeDetailOutsideHandler = null;
-    layout.classList.remove('mobile-detail-open');
-    document.body.classList.remove('message-open');
-    document.querySelector('.mail-toolbar').hidden = false;
-    setComposeVisibility(true);
-    detail.classList.add('empty-state');
-    detail.innerHTML = '<div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div>';
-    const list = document.querySelector('#message-list-scroll');
-    if (list) list.scrollTop = Number(layout.dataset.listScrollY || 0);
-  });
+  detail.querySelector('[data-action="back"]').addEventListener('click', returnToMessageList);
   const closeDetailPickers = (except = null) => detail.querySelectorAll('.detail-picker').forEach((picker) => {
     if (picker === except) return;
     const menu = picker.querySelector('.detail-picker-menu');
@@ -1134,7 +1196,7 @@ async function mountAccounts(target, embedded = false) {
       <form id="gmail-form" class="form-card card provider-connect-card"><h3>Gmail</h3><p>透過 Google 官方 OAuth 頁面授權，不會儲存 Gmail 密碼。</p><button id="google-oauth-console" class="ghost provider-external" type="button">開啟 Google OAuth 設定 ↗</button><label>Google Client ID<input name="clientId" required autocomplete="off"></label><label>Google Client Secret<input name="clientSecret" type="password" required autocomplete="off"></label><p class="quick-folder-note">Callback：<span class="code">${escapeHtml(location.origin)}/api/oauth/google/callback</span></p><div class="form-actions"><button class="primary provider-connect" type="submit">連結 Gmail ↗</button></div></form>
       <form id="imap-form" class="form-card card provider-connect-card"><h3>Yahoo</h3><p>先到 Yahoo 官方帳號安全頁建立應用程式密碼，再回來完成連線。</p><button id="yahoo-authorize" class="ghost provider-external" type="button">開啟 Yahoo 授權頁 ↗</button><label>Yahoo Email<input name="email" type="email" required></label><label>應用程式密碼<input name="password" type="password" required autocomplete="off"></label><input name="imapHost" type="hidden" value="imap.mail.yahoo.com"><input name="smtpHost" type="hidden" value="smtp.mail.yahoo.com"><input name="imapPort" type="hidden" value="993"><input name="smtpPort" type="hidden" value="465"><div class="form-actions"><button class="primary provider-connect" type="submit">連結 Yahoo</button></div></form>
     </div></div>`;
-  target.querySelector('.inline-panel-close')?.addEventListener('click', () => renderRoute());
+  target.querySelector('.inline-panel-close')?.addEventListener('click', () => target.closest('dialog') ? target.closest('dialog').close() : renderRoute());
   bindQuickFolderDeletes(target, () => mountAccounts(target, embedded));
   target.querySelector('#gmail-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
@@ -1167,7 +1229,7 @@ async function renderAccounts() {
 async function mountRules(target, embedded = false) {
   const rules = await api('/api/rules');
   target.innerHTML = `<div class="inline-settings">${embedded ? '<div class="inline-panel-head"><div><h2>自動分類設定</h2><p>依寄件者或主旨新增分類條件。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}${quickFolderSection('categories')}<form id="rule-form" class="form-card card narrow"><div class="split"><label>規則名稱<input name="name" placeholder="例如：購物通知" required></label><label>分類名稱<input name="category" list="category-folder-options" placeholder="例如：購物" required><datalist id="category-folder-options">${quickFolders.categories.map((folder) => `<option value="${escapeHtml(folder.name)}"></option>`).join('')}</datalist></label></div><div class="split"><label>比對範圍<select name="field"><option value="sender">寄件者</option><option value="subject">主旨</option><option value="both">寄件者與主旨</option></select></label><label>比對方式<select name="operator"><option value="contains">包含</option><option value="equals">完全相同</option><option value="regex">正規表示式</option></select></label></div><label>比對文字<input name="value" placeholder="shopee 或 @company.com" required></label><div class="form-actions"><button class="primary">新增規則</button></div></form><h2 class="section-title" style="margin-top:32px">現有規則</h2><div class="rule-list">${rules.length ? rules.map((rule) => `<div class="rule-card card"><div><b>${escapeHtml(rule.name)}</b><div>${escapeHtml(rule.field)} ${escapeHtml(rule.operator)}「${escapeHtml(rule.value)}」→ ${escapeHtml(rule.category)}</div></div><button class="danger" data-id="${rule.id}">刪除</button></div>`).join('') : '<div class="card loading">還沒有分類規則。新規則會在下次同步時套用。</div>'}</div></div>`;
-  target.querySelector('.inline-panel-close')?.addEventListener('click', () => renderRoute());
+  target.querySelector('.inline-panel-close')?.addEventListener('click', () => target.closest('dialog') ? target.closest('dialog').close() : renderRoute());
   bindQuickFolderDeletes(target, () => mountRules(target, embedded));
   target.querySelector('#rule-form').addEventListener('submit', async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { await api('/api/rules', { method: 'POST', body: JSON.stringify(data) }); showNotice('分類規則已新增'); await mountRules(target, embedded); } catch (error) { showNotice(error.message, true); } });
   target.querySelectorAll('.rule-card button').forEach((button) => button.addEventListener('click', async () => { await api(`/api/rules/${button.dataset.id}`, { method: 'DELETE' }); await mountRules(target, embedded); }));
@@ -1189,10 +1251,12 @@ function renderHelp() {
 }
 
 async function renderRoute() {
-  if (location.hash !== '#inbox') history.replaceState(null, '', '#inbox');
+  activeMessageRequest += 1;
+  history.replaceState({ mailboxView: 'list' }, '', '#inbox');
+  handledHash = '#inbox';
   view.innerHTML = '';
   document.body.classList.remove('settings-open', 'message-open');
-  syncButton.hidden = false;
+  syncButton.hidden = true;
   setComposeVisibility(true);
   title.textContent = '統一收件匣';
   try { await renderInbox(); view.focus(); } catch (error) { view.innerHTML = `<div class="card loading">載入失敗：${escapeHtml(error.message)}</div>`; }
@@ -1324,7 +1388,7 @@ const closeHelp = () => { helpDialog.close(); setComposeVisibility(!document.bod
 helpButton.addEventListener('click', () => { setComposeVisibility(false); helpDialog.showModal(); });
 document.querySelector('#help-close').addEventListener('click', closeHelp);
 document.querySelector('#help-done').addEventListener('click', closeHelp);
-[composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog, messageDownloadDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+[composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog, messageDownloadDialog, settingsDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
 helpDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
 quickFolderDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
 filterDrawerToggle.addEventListener('click', () => setFilterDrawer(!document.body.classList.contains('filters-open')));
@@ -1351,5 +1415,59 @@ syncButton.addEventListener('click', async () => {
   catch (error) { showNotice(error.message, true); }
   finally { setBusy(syncButton, false); }
 });
-window.addEventListener('hashchange', renderRoute);
-renderRoute();
+async function syncInboxAutomatically() {
+  if (autoSyncRunning || document.hidden || !accounts.length) return;
+  autoSyncRunning = true;
+  lastAutoSync = Date.now();
+  try {
+    const results = await api('/api/sync', { method: 'POST' });
+    const failed = results.filter((item) => !item.ok);
+    if (failed.length) showNotice(`有 ${failed.length} 個信箱同步失敗：${failed[0].error}`, true);
+    if (document.body.classList.contains('message-open') || document.querySelector('dialog[open]')) autoSyncRefreshPending = true;
+    else await refreshInboxData?.({ preserve: true });
+  } catch (error) { showNotice(`自動同步失敗：${error.message}`, true); }
+  finally { autoSyncRunning = false; }
+}
+
+async function handleMailboxNavigation() {
+  if (handledHash === location.hash) return;
+  handledHash = location.hash;
+  const match = location.hash.match(/^#inbox\/message\/(\d+)$/);
+  if (match) {
+    if (!document.querySelector('#message-list')) await renderRoute();
+    try { await openMessage(Number(match[1])); } catch (error) { showNotice(error.message, true); }
+  } else if (document.body.classList.contains('message-open')) closeMessageDetail();
+  else if (!document.querySelector('#message-list')) await renderRoute();
+}
+
+async function initializeAppDownload() {
+  const link = document.querySelector('#app-download');
+  link.addEventListener('click', (event) => {
+    if (!link.hasAttribute('href')) { event.preventDefault(); showNotice('App 安裝檔尚未上傳，完成後可從這裡直接下載。'); }
+  });
+  try {
+    const response = await fetch('/app-release.json', { cache: 'no-store' });
+    if (!response.ok) return;
+    const release = await response.json();
+    if (!release.downloadUrl) return;
+    const url = new URL(release.downloadUrl, location.href);
+    if (!['https:', 'http:'].includes(url.protocol) || !url.pathname.endsWith('.apk')) return;
+    link.href = url.href;
+    link.download = `mailbox-manager-${release.version || 'latest'}.apk`;
+    link.setAttribute('aria-disabled', 'false');
+    link.title = release.version ? `下載 App ${release.version}` : '下載 App';
+  } catch { /* Keep the download entry unavailable until a release is configured. */ }
+}
+
+window.addEventListener('popstate', handleMailboxNavigation);
+window.addEventListener('hashchange', handleMailboxNavigation);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && Date.now() - lastAutoSync > 60000) syncInboxAutomatically();
+});
+setInterval(syncInboxAutomatically, 5 * 60 * 1000);
+const initialMessageId = location.hash.match(/^#inbox\/message\/(\d+)$/)?.[1];
+renderRoute().then(async () => {
+  if (initialMessageId) await openMessage(Number(initialMessageId));
+  await syncInboxAutomatically();
+}).catch((error) => showNotice(error.message, true));
+initializeAppDownload();

@@ -19,8 +19,8 @@
   <div class="app-shell">
     <main>
       <header class="topbar">
-        <div class="title-block"><p class="eyebrow">PERSONAL COMMUNICATION HUB <span id="demo-label" hidden>· 介面測試版</span></p><div class="title-line"><button id="filter-drawer-toggle" class="filter-drawer-toggle" type="button" aria-label="開啟信件篩選選單" aria-expanded="false" aria-controls="inbox-filters"><span aria-hidden="true">☰</span></button><h1 id="page-title">統一收件匣</h1><button id="help-button" class="help-button" type="button" aria-label="開啟說明">?</button></div></div>
-        <div class="top-actions"><button id="compose-button" class="ghost compose-fab" type="button" aria-label="寫信" title="寫信"><span class="compose-icon" aria-hidden="true">✎</span><span class="compose-label">寫信</span></button><button id="sync-button" class="primary">同步</button></div>
+        <div class="title-block"><p class="eyebrow">PERSONAL COMMUNICATION HUB <span id="demo-label" hidden>· 介面測試版</span></p><div class="title-line"><button id="filter-drawer-toggle" class="filter-drawer-toggle" type="button" aria-label="開啟信件篩選選單" aria-expanded="false" aria-controls="inbox-filters"><span aria-hidden="true">☰</span></button><h1 id="page-title">統一收件匣</h1></div></div>
+        <div class="top-actions"><button id="compose-button" class="ghost compose-fab" type="button" aria-label="寫信" title="寫信"><span class="compose-icon" aria-hidden="true">✎</span><span class="compose-label">寫信</span></button><button id="sync-button" class="primary" hidden>同步</button><a id="app-download" class="ghost app-download" aria-disabled="true" title="等待 APK 安裝檔">App 下載</a><button id="help-button" class="help-button" type="button" aria-label="開啟說明">?</button></div>
       </header>
       <div id="notice" role="status" aria-live="polite"></div>
       <section id="view" tabindex="-1"></section>
@@ -28,18 +28,16 @@
   </div>
   <template id="inbox-template">
     <div class="inbox-controls card" id="inbox-filters">
-      <div class="drawer-heading"><b>信件篩選</b></div>
-      <label class="search"><span>搜尋</span><input id="search-input" placeholder="主旨、寄件者或內容摘要"></label>
-      <div class="filter-group" aria-labelledby="account-filter-label">
-        <div class="filter-heading-row"><div class="filter-heading-main"><button class="filter-add heading-add" id="add-account" type="button" aria-label="增加信箱帳號">＋</button><div class="filter-heading" id="account-filter-label">信箱帳號</div></div><button class="filter-settings" id="account-settings" type="button" aria-label="設定信箱帳號" aria-pressed="false"><span aria-hidden="true">⚙</span> 設定</button></div>
-        <div class="filter-rail"><div id="account-filters" class="filter-scroll"></div></div>
+      <label class="search"><span class="sr-only">搜尋信件</span><svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/></svg><input id="search-input" placeholder="主旨、寄件者或內容摘要"></label>
+      <div class="filter-group compact-filter-row" aria-label="信箱">
+        <button class="filter-add heading-add" id="add-account" type="button" aria-label="增加信箱帳號">＋</button>
+        <div id="account-filters" class="filter-scroll"></div><button class="filter-settings" id="account-settings" type="button" aria-label="設定信箱帳號" aria-pressed="false">⚙</button>
       </div>
-      <div class="filter-group" aria-labelledby="category-filter-label">
-        <div class="filter-heading-row"><div class="filter-heading-main"><button class="filter-add heading-add" id="add-category" type="button" aria-label="增加分類條件">＋</button><div class="filter-heading" id="category-filter-label">自動分類</div></div><button class="filter-settings" id="category-settings" type="button" aria-label="設定自動分類" aria-pressed="false"><span aria-hidden="true">⚙</span> 設定</button></div>
-        <div class="filter-rail"><div id="category-filters" class="filter-scroll"></div></div>
+      <div class="filter-group compact-filter-row" aria-label="分類">
+        <button class="filter-add heading-add" id="add-category" type="button" aria-label="增加分類條件">＋</button>
+        <div id="category-filters" class="filter-scroll"></div><button class="filter-settings" id="category-settings" type="button" aria-label="設定自動分類" aria-pressed="false">⚙</button>
       </div>
-      <div class="filter-group" aria-labelledby="mail-filter-label">
-        <div class="filter-heading" id="mail-filter-label">郵件類型</div>
+      <div class="filter-group" aria-label="郵件類型">
         <div id="mail-filters" class="filter-scroll status-filters"></div>
       </div>
     </div>
@@ -50,6 +48,7 @@
       </div>
     </div>
   </template>
+  <dialog id="settings-dialog" class="app-dialog settings-dialog" aria-label="信箱與分類設定"><div id="settings-content"></div></dialog>
   <dialog id="compose-dialog" class="app-dialog compose-dialog" aria-labelledby="compose-title">
     <form id="compose-form" class="form-card compose-modal-form">
       <div class="dialog-heading"><div><p class="eyebrow">NEW MESSAGE</p><h2 id="compose-title">撰寫郵件</h2></div><button class="dialog-x" id="compose-close" type="button" aria-label="關閉寫信視窗">×</button></div>
