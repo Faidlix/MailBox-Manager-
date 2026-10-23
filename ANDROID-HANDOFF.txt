@@ -1,5 +1,33 @@
 Android integration handoff (web version 26)
 
+On-demand coordination status (verified 2026-10-23):
+- No schedule, heartbeat, polling, webhook, runner, credential, or service was
+  created. Only Dot receiving an explicit user instruction may route one request
+  through the existing supported coordination conversation path to the original
+  local worker.
+- The original cloud conversation cannot directly invoke another conversation,
+  does not automatically dispatch work, and does not continuously scan source.
+- Fixed conversation IDs are recorded in
+  config/mailbox-coordination-map.json. Reopening the project or creating a new
+  worker is not a repair path.
+
+Website download status (read-only evidence verified 2026-10-23):
+- Live metadata URL: https://mailbox-manager-test.fantasy02dreamer08.chatgpt.site
+- Saved Site version 26 source SHA:
+  37c369a2b10f309c3bfcf65d16613393b2bea772
+- Access is custom with one allowed owner and zero allowed groups. This is not a
+  public anonymous APK download surface. No anonymous live-body read was
+  completed in this verification.
+- public/index.html contains #app-download with aria-disabled=true and no href.
+  public/app.js only enables it after /app-release.json provides downloadUrl.
+- public/app-release.json has null version, downloadUrl and sha256. There is no
+  public/downloads directory and no APK anywhere under public/. Therefore the
+  link has no current target and no APK is hosted by this Site source.
+- Sites metadata returned source_repository_credential=null. No source
+  credential was requested, issued, or stored during this verification.
+- Keep the actual hosted file target pending explicit instruction. Do not infer
+  a public repository, URL, audience change, or permission change from the UI.
+
 The user requested a new APK after the web changes. This cloud checkout contains
 no android/ tree, Capacitor configuration, existing APK, or signing material.
 GitHub main was checked and also contains no Android project or release assets.

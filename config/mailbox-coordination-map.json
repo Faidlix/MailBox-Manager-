@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "enabled": false,
+  "dispatchMode": "on-demand-only",
+  "userCommandGate": "dot-explicit-user-command",
+  "originalCloud": {
+    "threadId": "01a10b9e-655a-7135-9372-81e43a93c00f",
+    "hostId": "durable"
+  },
+  "originalLocalWorker": {
+    "threadId": "01a10fa7-ef8e-7aa0-8345-9c525f126e27",
+    "hostId": "local",
+    "repository": "B:\\AI\\MailBox\\MailBox-Manager-Sites"
+  },
+  "coordinationBridge": {
+    "threadId": "01a15daf-27ad-70f0-85b7-1b49cac05005",
+    "hostId": null,
+    "transport": "codex_delegation"
+  },
+  "prohibited": [
+    "schedule",
+    "heartbeat",
+    "polling",
+    "webhook",
+    "new-runner",
+    "new-worker",
+    "background-service",
+    "long-lived-credential"
+  ]
+}

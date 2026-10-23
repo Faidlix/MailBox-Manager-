@@ -6,8 +6,22 @@ receipt/status pair. It does not execute shell text, build Android, publish an
 APK, run in the background, or treat request text as authorization.
 
 This is not a continuous cloud trigger and does not guarantee automatic reports
-to another conversation. A human or separately approved formal trigger must run
-the CLI and deliver the receipt to the configured report thread.
+to another conversation. Only Dot acting on an explicit user command may route
+an on-demand request to the original local worker, which may then run the CLI.
+
+## On-demand Coordination Only
+
+`config/mailbox-coordination-map.json` records the fixed original cloud, original
+local worker, and observed `codex_delegation` bridge thread IDs. It is disabled
+configuration evidence, not an executable router. Do not replace the original
+local worker by reopening the project or creating another worker.
+
+Only after Dot receives an explicit user command may it use the existing,
+supported coordination conversation path to call the original local worker.
+The original cloud conversation has no direct cross-conversation invocation
+tool. It does not dispatch work automatically and does not continuously scan the
+source repository. There is no hourly check, heartbeat, polling loop, webhook,
+runner, background service, or standing credential.
 
 Run the Site 26 request once:
 
@@ -56,8 +70,6 @@ request payload:
 5. Accepted risks and explicit publication approval, including rollback and
    who can revoke the trigger.
 
-Codex's formal heartbeat or project automation may provide a future trigger only
-after explicit schedule, executor, routing, and credential approval. Its actual
-ability to reach this local repository and report back must be proven in a
-separate end-to-end test. It should invoke this one-shot contract, not install a
-custom daemon. No trigger, automation, or report guarantee is created here.
+No periodic trigger is proposed. Future work remains on-demand unless the user
+later gives a new, explicit authorization. This repository creates no trigger,
+automation, or report guarantee.
