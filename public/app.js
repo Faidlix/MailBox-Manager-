@@ -1,3 +1,5 @@
+import { createMessagePdf } from './message-export.js';
+
 const view = document.querySelector('#view');
 const title = document.querySelector('#page-title');
 const noticeRoot = document.querySelector('#notice');
@@ -13,6 +15,10 @@ const cleanupDialog = document.querySelector('#cleanup-dialog');
 const cleanupForm = document.querySelector('#cleanup-form');
 const messageFilterDialog = document.querySelector('#message-filter-dialog');
 const messageFilterForm = document.querySelector('#message-filter-form');
+const messageDownloadDialog = document.querySelector('#message-download-dialog');
+const messageDownloadForm = document.querySelector('#message-download-form');
+const settingsDialog = document.querySelector('#settings-dialog');
+const settingsContent = document.querySelector('#settings-content');
 const filterDrawerToggle = document.querySelector('#filter-drawer-toggle');
 const filterDrawerBackdrop = document.querySelector('#filter-drawer-backdrop');
 const messageActionMenu = document.querySelector('#message-action-menu');
@@ -33,6 +39,16 @@ const loadQuickFolders = () => {
 let quickFolders = loadQuickFolders();
 let quickFolderType = 'accounts';
 let cleanupMode = 'date';
+let activeDetailOutsideHandler = null;
+let activeSelectionOutsideHandler = null;
+let activeMessageRequest = 0;
+let downloadMessageContext = null;
+let exportSession = null;
+let refreshInboxData = null;
+let autoSyncRunning = false;
+let autoSyncRefreshPending = false;
+let lastAutoSync = 0;
+let handledHash = location.hash;
 const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
 let loadedMessages = [];
 const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
@@ -112,6 +128,8 @@ const demoApi = async (url, options = {}) => {
   if (readMatch) { const item = demoMessages.find((message) => message.id === Number(readMatch[1])); if (item) item.is_read = JSON.parse(options.body).read ? 1 : 0; return { ok: true }; }
   const starMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/star$/);
   if (starMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(starMatch[1])); if (item) item.is_starred = JSON.parse(options.body).starred ? 1 : 0; return { ok: true }; }
+  const categoryMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/category$/);
+  if (categoryMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(categoryMatch[1])); if (item) item.category = JSON.parse(options.body).category || '未分類'; return { ok: true }; }
   const moveMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/move$/);
   if (moveMatch && method === 'PATCH') { const item = demoMessages.find((message) => message.id === Number(moveMatch[1])); if (item) item.folder = JSON.parse(options.body).folder; return { ok: true }; }
   const archiveMatch = parsed.pathname.match(/^\/api\/messages\/(\d+)\/archive$/);
@@ -142,8 +160,15 @@ const api = async (url, options = {}) => {
 if (demoMode) document.querySelector('#demo-label').hidden = false;
 
 function showNotice(message, error = false) {
+  const openDialog = document.querySelector('dialog[open]');
+  (openDialog || document.body).append(noticeRoot);
   noticeRoot.innerHTML = `<div class="notice ${error ? 'error' : ''}">${escapeHtml(message)}</div>`;
   setTimeout(() => { noticeRoot.innerHTML = ''; }, 4200);
+}
+
+function setComposeVisibility(visible) {
+  composeButton.hidden = !visible;
+  document.body.classList.toggle('compose-available', visible);
 }
 
 function setFilterDrawer(open) {
@@ -184,12 +209,18 @@ function formatMessageGroupDate(value) {
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}（${weekday}）`;
 }
 
+function formatMessagePickerDate(value) {
+  const date = messageDate(value);
+  return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+}
+
 function accountOptions(selected = '') {
   return accounts.map((account) => `<option value="${account.id}" ${String(account.id) === String(selected) ? 'selected' : ''}>${escapeHtml(account.email)} · ${account.provider === 'gmail' ? 'Gmail' : 'IMAP'}</option>`).join('');
 }
 
 function openQuickFolderDialog(type) {
   setFilterDrawer(false);
+  setComposeVisibility(false);
   quickFolderType = type;
   quickFolderForm.reset();
   const isAccount = type === 'accounts';
@@ -248,40 +279,53 @@ async function renderInbox() {
   const states = [['all', '全部郵件'], ['unread', '未讀'], ['starred', '星號'], ['archive', '封存'], ['spam', '垃圾郵件'], ['trash', '垃圾桶']];
   const inboxContent = document.querySelector('#inbox-content');
   const mailShell = () => `<div class="mail-toolbar card" aria-label="信件操作列">
-    <label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label>
+    <div class="select-all-wrap"><label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label><div id="selection-scope" class="selection-scope" hidden><button id="select-current-page" type="button">本頁 100 封</button><button id="select-all-results" type="button">全部信件</button></div></div>
     <button id="message-filter" class="toolbar-action" type="button"><span aria-hidden="true">☷</span><span id="message-filter-label">篩選</span></button><button id="message-filter-reset" class="toolbar-action filter-reset" type="button" aria-label="重設全部篩選" title="重設全部篩選" hidden>×</button>
-    <span id="selected-count" class="selected-count">未選取</span><div id="selection-scope" class="selection-scope" hidden><span>選取：</span><button id="select-current-page" type="button">本頁 100 封</button><button id="select-all-results" type="button">全部信件</button></div>
-    <button id="bulk-star" class="toolbar-action" type="button" disabled><span aria-hidden="true">★</span> 星號</button>
-    <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled><span aria-hidden="true">↪</span> 搬移信件</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-move-folder="INBOX">收件匣</button><button type="button" data-move-folder="ARCHIVE">封存</button><button type="button" data-move-folder="SPAM">垃圾郵件</button><button type="button" data-move-folder="TRASH">垃圾桶</button></div></div>
-    <button id="bulk-spam" class="toolbar-action" type="button" disabled><span aria-hidden="true">!</span> 垃圾信件</button>
-    <div class="toolbar-menu-wrap"><button id="bulk-trash" class="toolbar-action danger-action" type="button"><span aria-hidden="true">⌫</span> 垃圾桶</button><div id="trash-options" class="toolbar-menu trash-menu" hidden><button type="button" data-trash-mode="all"><b>全部信件</b><small>移除目前選取的全部信件</small></button><button type="button" data-trash-mode="unstarred"><b>排除星號</b><small>保留已加星的選取信件</small></button><button type="button" data-trash-mode="date"><b>指定日期之前</b><small>設定日期並清理較早的信件</small></button><button type="button" data-trash-mode="filter"><b>寄件者／關鍵字</b><small>依寄件者或信件內容條件清理</small></button></div></div>
+    <button id="bulk-star" class="toolbar-action icon-only" type="button" disabled aria-label="切換星號" title="星號"><span aria-hidden="true">★</span></button>
+    <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled>分類</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-bulk-category="__new__">＋ 新增分類</button>${categories.map((category) => `<button type="button" data-bulk-category="${escapeHtml(category)}">${escapeHtml(category)}</button>`).join('')}<button type="button" data-bulk-category="未分類">未分類</button></div></div>
+    <button id="bulk-spam" class="toolbar-action" type="button" disabled>垃圾信</button>
+    <div class="toolbar-menu-wrap"><button id="bulk-trash" class="toolbar-action danger-action icon-only" type="button" aria-label="垃圾桶" title="垃圾桶"><svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button><div id="trash-options" class="toolbar-menu trash-menu" hidden><button type="button" data-trash-mode="all"><b>全部信件</b><small>移除目前選取的全部信件</small></button><button type="button" data-trash-mode="unstarred"><b>排除星號</b><small>保留已加星的選取信件</small></button><button type="button" data-trash-mode="date"><b>指定日期之前</b><small>設定日期並清理較早的信件</small></button><button type="button" data-trash-mode="filter"><b>寄件者／關鍵字</b><small>依寄件者或信件內容條件清理</small></button></div></div>
   </div><div class="mail-layout"><div id="message-list" class="message-list card"><nav id="message-pagination" class="message-pagination" aria-label="信件分頁" hidden></nav><div id="message-list-scroll" class="message-list-scroll"></div></div><article id="message-detail" class="message-detail card empty-state"><div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div></article></div>`;
   const setSettingsState = (active = '') => {
     document.querySelector('#account-settings').setAttribute('aria-pressed', String(active === 'accounts'));
     document.querySelector('#category-settings').setAttribute('aria-pressed', String(active === 'rules'));
   };
   const renderFilters = () => {
-    document.querySelector('#account-filters').innerHTML = `<button class="filter-chip ${inboxFilters.accountId ? '' : 'active'}" data-account="">所有帳號</button>${accounts.map((account) => `<button class="filter-chip ${String(inboxFilters.accountId) === String(account.id) ? 'active' : ''}" data-account="${account.id}"><span class="chip-dot"></span>${escapeHtml(account.display_name || account.email)}</button>`).join('')}${quickFolders.accounts.map((folder) => `<button class="filter-chip quick-folder-chip" data-quick-account="${escapeHtml(folder.id)}"><span class="chip-dot"></span>${escapeHtml(folder.name)}</button>`).join('')}`;
-    document.querySelector('#category-filters').innerHTML = `<button class="filter-chip ${inboxFilters.category ? '' : 'active'}" data-category="">所有分類</button>${categories.map((category) => `<button class="filter-chip ${inboxFilters.category === category ? 'active' : ''}" data-category="${escapeHtml(category)}"><span class="chip-dot"></span>${escapeHtml(category)}</button>`).join('')}`;
+    document.querySelector('#account-filters').innerHTML = `<button class="filter-chip ${inboxFilters.accountId ? '' : 'active'}" data-account="">所有信箱</button>${accounts.map((account) => `<button class="filter-chip ${String(inboxFilters.accountId) === String(account.id) ? 'active' : ''}" data-account="${account.id}"><span class="chip-dot"></span>${escapeHtml(account.display_name || account.email)}</button>`).join('')}${quickFolders.accounts.map((folder) => `<button class="filter-chip quick-folder-chip" data-quick-account="${escapeHtml(folder.id)}"><span class="chip-dot"></span>${escapeHtml(folder.name)}</button>`).join('')}`;
+    const currentCategories = [...new Set([...categories, ...loadedMessages.map((item) => item.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])];
+    document.querySelector('#category-filters').innerHTML = `<button class="filter-chip ${inboxFilters.category ? '' : 'active'}" data-category="">全部</button>${currentCategories.map((category) => `<button class="filter-chip ${inboxFilters.category === category ? 'active' : ''}" data-category="${escapeHtml(category)}"><span class="chip-dot"></span>${escapeHtml(category)}</button>`).join('')}`;
     document.querySelector('#mail-filters').innerHTML = states.map(([value, label]) => `<button class="filter-chip ${inboxFilters.state === value ? 'active' : ''}" data-state="${value}">${label}</button>`).join('');
   };
   inboxContent.innerHTML = mailShell();
   bindBulkToolbar();
   renderFilters();
-  const update = async () => {
+  let updateRevision = 0;
+  const update = async ({ preserve = false } = {}) => {
+    const revision = ++updateRevision;
+    if (!inboxContent.isConnected) return;
+    const scrollY = document.querySelector('#message-list-scroll')?.scrollTop || 0;
     if (!document.querySelector('#message-list')) { inboxContent.innerHTML = mailShell(); bindBulkToolbar(); }
     setSettingsState();
     const search = document.querySelector('#search-input').value;
     const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state, limit: '1000' });
-    document.querySelector('#message-pagination').hidden = true;
-    document.querySelector('#message-list-scroll').innerHTML = '<div class="loading">載入郵件中…</div>';
-    loadedMessages = await api(`/api/messages?${query}`);
+    if (!preserve) {
+      document.querySelector('#message-pagination').hidden = true;
+      document.querySelector('#message-list-scroll').innerHTML = '<div class="loading">載入郵件中…</div>';
+    }
+    const result = await api(`/api/messages?${query}`);
+    if (!inboxContent.isConnected || revision !== updateRevision) return;
+    if (preserve && (document.body.classList.contains('message-open') || document.querySelector('dialog[open]'))) { autoSyncRefreshPending = true; return; }
+    loadedMessages = result;
     messages = applyMessageViewFilter(loadedMessages);
-    messagePage = 1;
-    selectionScopeRequested = false;
-    selectedMessageIds.clear();
+    if (!preserve) {
+      messagePage = 1;
+      selectionScopeRequested = false;
+      selectedMessageIds.clear();
+    } else for (const id of selectedMessageIds) if (!messages.some((message) => message.id === id)) selectedMessageIds.delete(id);
     renderMessageList();
+    if (preserve) document.querySelector('#message-list-scroll').scrollTop = scrollY;
   };
+  refreshInboxData = update;
   let timer;
   document.querySelector('#search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(update, 250); });
   document.querySelector('#search-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') setFilterDrawer(false); });
@@ -291,10 +335,26 @@ async function renderInbox() {
   document.querySelector('#mail-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-state]'); if (!button) return; inboxFilters.state = button.dataset.state; renderFilters(); update(); setFilterDrawer(false); });
   const openSettings = async (type) => {
     setFilterDrawer(false);
+    setComposeVisibility(false);
     setSettingsState(type);
-    if (type === 'accounts') await mountAccounts(inboxContent, true);
-    else await mountRules(inboxContent, true);
-    requestAnimationFrame(() => inboxContent.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    settingsContent.innerHTML = '<div class="loading">載入設定中…</div>';
+    settingsDialog.showModal();
+    try {
+      if (type === 'accounts') await mountAccounts(settingsContent, true);
+      else await mountRules(settingsContent, true);
+    } catch (error) { settingsDialog.close(); showNotice(error.message, true); }
+  };
+  settingsDialog.onclose = async () => {
+    setSettingsState();
+    setComposeVisibility(!document.body.classList.contains('message-open'));
+    try {
+      await loadAccounts();
+      if (!inboxContent.isConnected) return;
+      if (inboxFilters.accountId && !accounts.some((account) => String(account.id) === String(inboxFilters.accountId))) inboxFilters.accountId = '';
+      renderFilters();
+      autoSyncRefreshPending = false;
+      await update({ preserve: true });
+    } catch (error) { showNotice(error.message, true); }
   };
   document.querySelector('#account-settings').addEventListener('click', () => openSettings('accounts'));
   document.querySelector('#category-settings').addEventListener('click', () => openSettings('rules'));
@@ -312,13 +372,19 @@ function updateBulkToolbar() {
   if (!selectAll) return;
   selectAll.checked = pageMessages.length > 0 && selectedOnPage.length === pageMessages.length;
   selectAll.indeterminate = selectedOnPage.length > 0 && selectedOnPage.length < pageMessages.length;
-  document.querySelector('#selected-count').textContent = selected.length ? `已選 ${selected.length} 封` : `共 ${messages.length} 封`;
   const selectionScope = document.querySelector('#selection-scope');
   selectionScope.hidden = !selectionScopeRequested;
+  if (selectionScopeRequested && matchMedia('(max-width:700px)').matches) {
+    const selectRect = selectAll.getBoundingClientRect();
+    selectionScope.style.setProperty('--scope-top', `${selectRect.bottom + 7}px`);
+    selectionScope.style.setProperty('--scope-left', `${Math.max(8, selectRect.left)}px`);
+  }
   document.querySelector('#select-current-page').textContent = `本頁 ${pageMessages.length} 封`;
   const selectAllResults = document.querySelector('#select-all-results');
   selectAllResults.textContent = `全部 ${messages.length} 封`;
   selectAllResults.hidden = messages.length <= pageMessages.length;
+  const countSummary = document.querySelector('#message-count-summary');
+  if (countSummary) countSummary.textContent = selected.length ? String(selected.length) : `${pageMessages.length}/${messages.length}`;
   const filterActive = Object.values(messageViewFilter).some(Boolean) || Boolean(inboxFilters.accountId || inboxFilters.category || inboxFilters.state !== 'all' || document.querySelector('#search-input')?.value);
   const filterLabels = [];
   if (inboxFilters.category) filterLabels.push(inboxFilters.category);
@@ -340,12 +406,6 @@ function updateBulkToolbar() {
   document.querySelector('#message-filter-reset').hidden = !filterActive;
   document.querySelectorAll('.toolbar-action').forEach((button) => { button.disabled = selected.length === 0 && !['bulk-trash', 'message-filter', 'message-filter-reset'].includes(button.id); });
   document.querySelector('#bulk-star span').textContent = selected.length && selected.every((message) => message.is_starred) ? '☆' : '★';
-  document.querySelectorAll('.date-select').forEach((checkbox) => {
-    const group = messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey);
-    const selectedInGroup = group.filter((message) => selectedMessageIds.has(message.id)).length;
-    checkbox.checked = group.length > 0 && selectedInGroup === group.length;
-    checkbox.indeterminate = selectedInGroup > 0 && selectedInGroup < group.length;
-  });
 }
 
 async function toggleMessageStar(id) {
@@ -367,6 +427,32 @@ async function moveSelectedMessages(folder, excludeStarred = false) {
   const targets = excludeStarred ? selected.filter((message) => !message.is_starred) : selected;
   if (!targets.length) { showNotice(excludeStarred ? '選取的信件都有星號，未移動任何信件' : '請先選取信件', true); return; }
   await moveMessages(targets, folder);
+}
+
+async function categorizeSelectedMessages(category) {
+  const selected = messages.filter((message) => selectedMessageIds.has(message.id));
+  if (!selected.length) { showNotice('請先選取信件', true); return; }
+  if (category === '__new__') {
+    category = prompt('輸入新分類名稱', '')?.trim();
+    if (!category) return;
+    if (!quickFolders.categories.some((folder) => folder.name === category)) {
+      quickFolders.categories.push({ id: `category-${Date.now()}`, name: category });
+      saveQuickFolders();
+    }
+  }
+  try {
+    await runInBatches(selected, (message) => api(`/api/messages/${message.id}/category`, { method: 'PATCH', body: JSON.stringify({ category }) }));
+    selected.forEach((message) => {
+      message.category = category;
+      const loaded = loadedMessages.find((item) => item.id === message.id);
+      if (loaded) loaded.category = category;
+      const demo = demoMessages.find((item) => item.id === message.id);
+      if (demo) demo.category = category;
+    });
+    selectedMessageIds.clear();
+    renderMessageList();
+    showNotice(`已將 ${selected.length} 封信件分類為「${category}」`);
+  } catch (error) { showNotice(error.message, true); }
 }
 
 async function runInBatches(items, task, size = 20) {
@@ -400,22 +486,31 @@ function bindBulkToolbar() {
   selectAll.addEventListener('change', () => {
     selectionScopeRequested = selectAll.checked;
     const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
-    messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => {
-      if (selectAll.checked) selectedMessageIds.add(message.id); else selectedMessageIds.delete(message.id);
-    });
+    if (selectAll.checked) messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => selectedMessageIds.add(message.id));
+    else selectedMessageIds.clear();
     renderMessageList();
   });
   document.querySelector('#select-current-page').addEventListener('click', () => {
     selectedMessageIds.clear();
     const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
     messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => selectedMessageIds.add(message.id));
+    selectionScopeRequested = false;
     renderMessageList();
   });
   document.querySelector('#select-all-results').addEventListener('click', () => {
     selectedMessageIds.clear();
     messages.forEach((message) => selectedMessageIds.add(message.id));
+    selectionScopeRequested = false;
     renderMessageList();
   });
+  if (activeSelectionOutsideHandler) document.removeEventListener('pointerdown', activeSelectionOutsideHandler);
+  activeSelectionOutsideHandler = (event) => {
+    if (!selectionScopeRequested || event.target.closest('.select-all-wrap')) return;
+    selectionScopeRequested = false;
+    selectedMessageIds.clear();
+    renderMessageList();
+  };
+  document.addEventListener('pointerdown', activeSelectionOutsideHandler);
   document.querySelector('#message-filter').addEventListener('click', openMessageFilterDialog);
   document.querySelector('#message-filter-reset').addEventListener('click', async () => {
     Object.assign(messageViewFilter, { fromDate: '', toDate: '', sender: '', subject: '' });
@@ -439,9 +534,29 @@ function bindBulkToolbar() {
   });
   const moveMenu = document.querySelector('#move-options');
   const trashMenu = document.querySelector('#trash-options');
-  document.querySelector('#bulk-move').addEventListener('click', () => { moveMenu.hidden = !moveMenu.hidden; trashMenu.hidden = true; });
-  document.querySelector('#bulk-trash').addEventListener('click', () => { trashMenu.hidden = !trashMenu.hidden; moveMenu.hidden = true; });
-  moveMenu.querySelectorAll('[data-move-folder]').forEach((button) => button.addEventListener('click', () => { moveMenu.hidden = true; moveSelectedMessages(button.dataset.moveFolder); }));
+  const toggleToolbarMenu = (menu, otherMenu, trigger) => {
+    const opening = menu.hidden;
+    otherMenu.hidden = true;
+    otherMenu.classList.remove('floating-toolbar-menu');
+    menu.hidden = !opening;
+    if (!opening) { menu.classList.remove('floating-toolbar-menu'); return; }
+    if (matchMedia('(max-width:700px)').matches) {
+      const rect = trigger.getBoundingClientRect();
+      menu.classList.add('floating-toolbar-menu');
+      menu.style.setProperty('--menu-top', `${Math.min(rect.bottom + 6, innerHeight * .55)}px`);
+    }
+    setTimeout(() => document.addEventListener('click', (event) => {
+      if (!event.target.closest('.toolbar-menu-wrap')) {
+        menu.hidden = true;
+        menu.classList.remove('floating-toolbar-menu');
+      }
+    }, { once: true }), 0);
+  };
+  const moveTrigger = document.querySelector('#bulk-move');
+  const trashTrigger = document.querySelector('#bulk-trash');
+  moveTrigger.addEventListener('click', () => toggleToolbarMenu(moveMenu, trashMenu, moveTrigger));
+  trashTrigger.addEventListener('click', () => toggleToolbarMenu(trashMenu, moveMenu, trashTrigger));
+  moveMenu.querySelectorAll('[data-bulk-category]').forEach((button) => button.addEventListener('click', () => { moveMenu.hidden = true; categorizeSelectedMessages(button.dataset.bulkCategory); }));
   trashMenu.querySelectorAll('[data-trash-mode]').forEach((button) => button.addEventListener('click', () => {
     trashMenu.hidden = true;
     const mode = button.dataset.trashMode;
@@ -467,41 +582,21 @@ function renderMessageList() {
   const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
   const pageMessages = messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE);
   pagination.hidden = false;
-  pagination.innerHTML = `<button type="button" data-page-direction="previous" ${messagePage === 1 ? 'disabled' : ''}>上一頁</button><span>第 ${messagePage} / ${totalPages} 頁 · 本頁 ${pageMessages.length} 封 · 共 ${messages.length} 封</span><button type="button" data-page-direction="next" ${messagePage === totalPages ? 'disabled' : ''}>下一頁</button>`;
-  const groups = new Map();
-  pageMessages.forEach((message) => {
-    const key = messageDateKey(message.received_at);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(message);
-  });
+  const countText = selectedMessageIds.size ? String(selectedMessageIds.size) : `${pageMessages.length}/${messages.length}`;
+  pagination.innerHTML = `<span id="message-count-summary" class="message-count-summary">${countText}</span><button type="button" data-page-direction="previous" ${messagePage === 1 ? 'disabled' : ''}>上一頁</button><span class="message-page-summary">第 ${messagePage}/${totalPages} 頁</span><button type="button" data-page-direction="next" ${messagePage === totalPages ? 'disabled' : ''}>下一頁</button>`;
   const messageRow = (message) => `
     <div class="message-swipe" data-id="${message.id}">
       <div class="swipe-action archive"><span>⇥</span>封存</div><div class="swipe-action delete">刪除<span>⌫</span></div>
       <div class="message-row ${message.is_read ? '' : 'unread'} ${selectedMessageIds.has(message.id) ? 'batch-selected' : ''}" data-id="${message.id}" tabindex="0" role="button" aria-label="${escapeHtml(message.subject)}">
-        <div class="message-primary-line"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button><div class="subject">${escapeHtml(message.subject)}</div><time class="date">${formatDate(message.received_at)}</time></div>
+        <div class="message-primary-line"><input class="message-select" type="checkbox" ${selectedMessageIds.has(message.id) ? 'checked' : ''} aria-label="選取 ${escapeHtml(message.subject)}"><button class="message-star ${message.is_starred ? 'active' : ''}" type="button" aria-label="${message.is_starred ? '移除' : '加上'}星號" aria-pressed="${Boolean(message.is_starred)}">${message.is_starred ? '★' : '☆'}</button><div class="subject">${escapeHtml(message.subject)}</div><button class="date message-date-filter" type="button" data-date-filter="${messageDateKey(message.received_at)}" aria-label="只顯示 ${formatMessageGroupDate(message.received_at)} 的信件">${formatMessageGroupDate(message.received_at)}</button></div>
         <div class="message-secondary-line"><span class="snippet">${escapeHtml(message.snippet)}</span><button class="sender message-source-filter" type="button" data-sender-filter="${escapeHtml(message.sender_name || message.sender_email)}">${escapeHtml(message.sender_name || message.sender_email)}</button><button class="category-pill message-category-filter" type="button" data-category-filter="${escapeHtml(message.category)}">${escapeHtml(message.category)}</button></div>
       </div>
     </div>`;
-  list.innerHTML = [...groups.entries()].map(([key, group]) => {
-    return `<section class="message-date-group" data-date-key="${key}">
-      <div class="date-divider">
-        <input class="date-select" type="checkbox" data-date-key="${key}" aria-label="選取 ${formatMessageGroupDate(group[0].received_at)} 的全部信件">
-        <span class="date-divider-line" aria-hidden="true"></span>
-        <button class="date-group-filter" type="button" data-date-filter="${key}" aria-label="只顯示 ${formatMessageGroupDate(group[0].received_at)} 的信件"><time datetime="${key}">${formatMessageGroupDate(group[0].received_at)}</time></button>
-      </div>
-      <div class="date-messages">${group.map(messageRow).join('')}</div>
-    </section>`;
-  }).join('');
+  list.innerHTML = pageMessages.map(messageRow).join('');
   pagination.querySelectorAll('[data-page-direction]').forEach((button) => button.addEventListener('click', () => {
     messagePage += button.dataset.pageDirection === 'next' ? 1 : -1;
     renderMessageList();
     list.scrollTop = 0;
-  }));
-  list.querySelectorAll('.date-select').forEach((checkbox) => checkbox.addEventListener('change', () => {
-    messages.filter((message) => messageDateKey(message.received_at) === checkbox.dataset.dateKey).forEach((message) => {
-      if (checkbox.checked) selectedMessageIds.add(message.id); else selectedMessageIds.delete(message.id);
-    });
-    renderMessageList();
   }));
   list.querySelectorAll('.message-source-filter').forEach((button) => button.addEventListener('click', () => {
     const sender = button.dataset.senderFilter;
@@ -518,7 +613,7 @@ function renderMessageList() {
     const target = [...document.querySelectorAll('#category-filters [data-category]')].find((item) => item.dataset.category === category);
     if (target) target.click();
   }));
-  list.querySelectorAll('.date-group-filter').forEach((button) => button.addEventListener('click', () => {
+  list.querySelectorAll('.message-date-filter').forEach((button) => button.addEventListener('click', () => {
     const key = button.dataset.dateFilter;
     const active = messageViewFilter.fromDate === key && messageViewFilter.toDate === key;
     messageViewFilter.fromDate = active ? '' : key;
@@ -648,12 +743,14 @@ function bindMessageGestures(row, id) {
   row.addEventListener('contextmenu', (event) => { event.preventDefault(); clearTimeout(pressTimer); showMessageMenu(id, event.clientX, event.clientY); });
 }
 
-function demoEml(message) {
+async function demoEml(message) {
   const relatedBoundary = `mailbox-related-${message.id}`;
   const alternativeBoundary = `mailbox-alternative-${message.id}`;
-  const html = (message.html_body || demoHtml(message)).replace(/data:image\/svg\+xml;base64,[^"']+/g, 'cid:mailbox-demo-mark');
+  const sourceHtml = message.html_body || demoHtml(message);
+  const hasDemoMark = sourceHtml.includes(toBase64(DEMO_MARK_SVG));
+  const html = sourceHtml.replace(`data:image/svg+xml;base64,${toBase64(DEMO_MARK_SVG)}`, 'cid:mailbox-demo-mark');
   const headers = [
-    `From: ${message.sender_name ? `"${message.sender_name.replaceAll('"', '')}" ` : ''}<${message.sender_email}>`,
+    `From: ${message.sender_name ? `=?UTF-8?B?${toBase64(message.sender_name)}?= ` : ''}<${message.sender_email}>`,
     `To: ${(message.recipients || []).join(', ')}`,
     `Date: ${new Date(message.received_at).toUTCString()}`,
     `Subject: =?UTF-8?B?${toBase64(message.subject || '(無主旨)')}?=`,
@@ -666,8 +763,16 @@ function demoEml(message) {
     `--${alternativeBoundary}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrapBase64(toBase64(message.text_body || message.snippet || '')),
     `--${alternativeBoundary}`, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrapBase64(toBase64(html)),
     `--${alternativeBoundary}--`,
-    `--${relatedBoundary}`, 'Content-Type: image/svg+xml; name="mailbox-mark.svg"', 'Content-Transfer-Encoding: base64', 'Content-ID: <mailbox-demo-mark>', 'Content-Disposition: inline; filename="mailbox-mark.svg"', '', wrapBase64(toBase64(DEMO_MARK_SVG)),
   ];
+  if (hasDemoMark) {
+    const logo = new Image();
+    logo.src = `data:image/svg+xml;base64,${toBase64(DEMO_MARK_SVG)}`;
+    await logo.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = 96; canvas.height = 96;
+    canvas.getContext('2d').drawImage(logo, 0, 0);
+    parts.push(`--${relatedBoundary}`, 'Content-Type: image/png; name="mailbox-mark.png"', 'Content-Transfer-Encoding: base64', 'Content-ID: <mailbox-demo-mark>', 'Content-Disposition: inline; filename="mailbox-mark.png"', '', wrapBase64(canvas.toDataURL('image/png').split(',')[1]));
+  }
   if (message.has_attachments) parts.push(`--${relatedBoundary}`, 'Content-Type: text/plain; name="demo-attachment.txt"', 'Content-Transfer-Encoding: base64', 'Content-Disposition: attachment; filename="demo-attachment.txt"', '', wrapBase64(toBase64('MailBox Manager 示範附件\n')));
   parts.push(`--${relatedBoundary}--`, '');
   return `${headers.join('\r\n')}\r\n\r\n${parts.join('\r\n')}`;
@@ -676,23 +781,11 @@ function demoEml(message) {
 async function downloadMessage(id) {
   hideMessageMenu();
   try {
-    let blob;
-    let subject = `message-${id}`;
-    if (demoMode) {
-      const message = await api(`/api/messages/${id}`);
-      subject = message.subject;
-      blob = new Blob([demoEml(message)], { type: 'message/rfc822;charset=utf-8' });
-    } else {
-      const message = await api(`/api/messages/${id}`);
-      subject = message.subject;
-      const response = await fetch(`/api/messages/${id}/download`);
-      if (!response.ok) throw new Error('下載信件失敗');
-      blob = await response.blob();
-    }
-    const filename = `${String(subject || 'message').replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 80)}.eml`;
+    const message = await api(`/api/messages/${id}`);
+    const file = await getMessageEmlFile(message);
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
+    link.href = URL.createObjectURL(file);
+    link.download = file.name;
     document.body.append(link);
     link.click();
     link.remove();
@@ -701,33 +794,311 @@ async function downloadMessage(id) {
   } catch (error) { showNotice(error.message, true); }
 }
 
+const safeFilename = (value = 'message') => String(value).replace(/[\\/:*?"<>|\r\n]/g, '_').trim().slice(0, 80) || 'message';
+
+async function getMessageEmlFile(message) {
+  let blob;
+  if (demoMode) blob = new Blob([await demoEml(message)], { type: 'message/rfc822;charset=utf-8' });
+  else {
+    const response = await fetch(`/api/messages/${message.id}/download`);
+    if (!response.ok) throw new Error('下載信件失敗');
+    blob = await response.blob();
+  }
+  return new File([blob], `${safeFilename(message.subject)}.eml`, { type: 'message/rfc822' });
+}
+
+function parseMimeFiles(raw, mode) {
+  const parts = raw.split(/\r?\n--[^\r\n]+(?:--)?(?:\r?\n|$)/);
+  const files = [];
+  const extensionByType = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
+  parts.forEach((part, index) => {
+    const split = part.search(/\r?\n\r?\n/);
+    if (split < 0) return;
+    const headers = part.slice(0, split).replace(/\r?\n[ \t]+/g, ' ');
+    const content = part.slice(split).replace(/^\r?\n\r?\n/, '').replace(/\r?\n$/, '');
+    const type = headers.match(/^Content-Type:\s*([^;\r\n]+)/im)?.[1]?.trim().toLowerCase() || 'application/octet-stream';
+    const disposition = headers.match(/^Content-Disposition:\s*([^;\r\n]+)/im)?.[1]?.trim().toLowerCase() || '';
+    const encodedName = headers.match(/filename\*=UTF-8''([^;\r\n]+)/i)?.[1];
+    const plainName = headers.match(/(?:filename|name)="?([^";\r\n]+)"?/i)?.[1];
+    const isImage = type.startsWith('image/');
+    const wanted = mode === 'images' ? isImage : disposition === 'attachment';
+    if (!wanted) return;
+    let filename = encodedName ? decodeURIComponent(encodedName) : plainName;
+    filename = safeFilename(filename || `${isImage ? 'image' : 'attachment'}-${index + 1}.${extensionByType[type] || 'bin'}`);
+    const encoding = headers.match(/^Content-Transfer-Encoding:\s*([^\r\n]+)/im)?.[1]?.toLowerCase();
+    let bytes;
+    if (encoding === 'base64') {
+      const binary = atob(content.replace(/\s/g, ''));
+      bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    } else {
+      const decoded = encoding === 'quoted-printable'
+        ? content.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (_match, hex) => String.fromCharCode(parseInt(hex, 16)))
+        : content;
+      bytes = new TextEncoder().encode(decoded);
+    }
+    const file = new File([bytes], filename, { type });
+    file.contentId = headers.match(/^Content-ID:\s*<([^>]+)>/im)?.[1] || '';
+    files.push(file);
+  });
+  return files;
+}
+
+async function buildExportFiles(type, message) {
+  if (type === 'pdf') {
+    const eml = await getMessageEmlFile(message);
+    const images = parseMimeFiles(await eml.text(), 'images');
+    return [await createMessagePdf(message, images, `${safeFilename(message.subject)}.pdf`)];
+  }
+  const eml = await getMessageEmlFile(message);
+  if (type === 'eml') return [eml];
+  const files = parseMimeFiles(await eml.text(), type);
+  if (type === 'images' && message.html_body) {
+    const html = new DOMParser().parseFromString(message.html_body, 'text/html');
+    const sources = new Set([...html.images].map((image) => image.getAttribute('src')).filter((src) => /^(data:image\/|https?:\/\/)/i.test(src || '')));
+    for (const src of sources) {
+      const response = await fetch(src, { credentials: 'omit', signal: AbortSignal.timeout(15000) });
+      if (!response.ok) throw new Error('圖片下載失敗，請稍後再試');
+      const blob = await response.blob();
+      if (!blob.type.startsWith('image/')) throw new Error('信件圖片回傳的格式無效');
+      const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg' }[blob.type] || 'img';
+      // The demo logo already exists in the EML as a compatible PNG.
+      if (src === `data:image/svg+xml;base64,${toBase64(DEMO_MARK_SVG)}` && files.some((file) => file.contentId === 'mailbox-demo-mark')) continue;
+      files.push(new File([blob], `image-${files.length + 1}.${ext}`, { type: blob.type }));
+    }
+  }
+  if (!files.length) throw new Error(type === 'images' ? '這封信沒有可下載的圖片' : '這封信沒有可下載的附件');
+  return files;
+}
+
+async function saveExportFiles(files) {
+  if (files.length === 1 && window.showSaveFilePicker) {
+    try {
+      const file = files[0];
+      const handle = await window.showSaveFilePicker({ suggestedName: file.name });
+      const writable = await handle.createWritable();
+      await writable.write(file);
+      await writable.close();
+      return;
+    } catch (error) { if (error.name === 'AbortError') throw error; }
+  }
+  if (files.length > 1 && window.showDirectoryPicker) {
+    try {
+      const directory = await window.showDirectoryPicker();
+      for (const file of files) {
+        const handle = await directory.getFileHandle(file.name, { create: true });
+        const writable = await handle.createWritable();
+        await writable.write(file);
+        await writable.close();
+      }
+      return;
+    } catch (error) { if (error.name === 'AbortError') throw error; }
+  }
+  files.forEach((file, index) => setTimeout(() => {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(file);
+    link.download = file.name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1500);
+  }, index * 180));
+}
+
+async function prepareExportSelection(session) {
+  const type = new FormData(messageDownloadForm).get('exportType');
+  const button = document.querySelector('#message-share');
+  const download = messageDownloadForm.querySelector('[type="submit"]');
+  session.readyType = null;
+  button.disabled = true; download.disabled = true;
+  button.textContent = '準備中…';
+  try {
+    if (!session.files.has(type)) session.files.set(type, buildExportFiles(type, session.message));
+    const files = await session.files.get(type);
+    if (exportSession !== session || new FormData(messageDownloadForm).get('exportType') !== type) return;
+    session.readyType = type; session.readyFiles = files;
+    button.disabled = false; download.disabled = false;
+  } catch (error) {
+    session.files.delete(type);
+    if (exportSession === session && new FormData(messageDownloadForm).get('exportType') === type) {
+      button.disabled = false; download.disabled = false;
+      showNotice(`準備檔案失敗：${error.message}。可再按一次重試。`, true);
+    }
+  } finally {
+    if (exportSession === session && new FormData(messageDownloadForm).get('exportType') === type) button.textContent = '分享';
+  }
+}
+
+async function openMessageDownloadDialog(message) {
+  downloadMessageContext = message;
+  const session = { message, files: new Map(), readyType: null, readyFiles: [] };
+  exportSession = session;
+  messageDownloadForm.reset();
+  setBusy(document.querySelector('#message-share'), false);
+  setBusy(messageDownloadForm.querySelector('[type="submit"]'), false);
+  document.querySelector('#message-download-subject').textContent = message.subject;
+  for (const type of ['attachments', 'images']) messageDownloadForm.querySelector(`[value="${type}"]`).closest('label').hidden = true;
+  messageDownloadDialog.showModal();
+  const preparing = prepareExportSelection(session);
+  try {
+    const eml = await session.files.get('eml');
+    if (exportSession !== session) return;
+    const raw = await eml[0].text();
+    for (const type of ['attachments', 'images']) {
+      const files = parseMimeFiles(raw, type);
+      const htmlImages = type === 'images' && new DOMParser().parseFromString(message.html_body || '', 'text/html').querySelector('img[src]');
+      messageDownloadForm.querySelector(`[value="${type}"]`).closest('label').hidden = !files.length && !htmlImages;
+    }
+  } catch { /* The preparation step reports download errors. */ }
+  await preparing;
+}
+
+function updateMessageHistory(id) {
+  const hash = `#inbox/message/${id}`;
+  if (location.hash !== hash) {
+    const state = { mailboxView: 'message', messageId: id };
+    if (document.body.classList.contains('message-open')) history.replaceState(state, '', hash);
+    else history.pushState(state, '', hash);
+  }
+  handledHash = hash;
+}
+
+function closeMessageDetail() {
+  activeMessageRequest += 1;
+  if (activeDetailOutsideHandler) document.removeEventListener('click', activeDetailOutsideHandler);
+  activeDetailOutsideHandler = null;
+  const detail = document.querySelector('#message-detail');
+  const layout = detail?.closest('.mail-layout');
+  if (!layout) return;
+  layout.classList.remove('mobile-detail-open');
+  document.body.classList.remove('message-open');
+  document.querySelector('.mail-toolbar').hidden = false;
+  setComposeVisibility(true);
+  detail.classList.add('empty-state');
+  detail.innerHTML = '';
+  detail.ontouchstart = null; detail.ontouchend = null;
+  const list = document.querySelector('#message-list-scroll');
+  if (list) list.scrollTop = Number(layout.dataset.listScrollY || 0);
+  if (autoSyncRefreshPending) {
+    autoSyncRefreshPending = false;
+    refreshInboxData?.({ preserve: true }).catch((error) => showNotice(error.message, true));
+  }
+}
+
+function returnToMessageList() {
+  closeMessageDetail();
+  if (history.state?.mailboxView === 'message') history.back();
+  else { history.replaceState({ mailboxView: 'list' }, '', '#inbox'); handledHash = '#inbox'; }
+}
+
 async function openMessage(id) {
+  const requestToken = ++activeMessageRequest;
+  if (activeDetailOutsideHandler) {
+    document.removeEventListener('click', activeDetailOutsideHandler);
+    activeDetailOutsideHandler = null;
+  }
   const message = await api(`/api/messages/${id}`);
+  if (requestToken !== activeMessageRequest) return;
+  if (!message.is_read) {
+    try {
+      await api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: true }) });
+      message.is_read = 1;
+      for (const source of [messages, loadedMessages, demoMessages]) {
+        const local = source.find((item) => item.id === id);
+        if (local) local.is_read = 1;
+      }
+      document.querySelector(`.message-row[data-id="${id}"]`)?.classList.remove('unread');
+    } catch (error) { showNotice(`無法標記已讀：${error.message}`, true); }
+    if (requestToken !== activeMessageRequest) return;
+  }
   document.querySelectorAll('.message-row').forEach((row) => row.classList.toggle('selected', Number(row.dataset.id) === id));
   const detail = document.querySelector('#message-detail');
+  const categories = [...new Set([...loadedMessages.map((item) => item.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  const messageIndex = messages.findIndex((item) => item.id === id);
   detail.classList.remove('empty-state');
   detail.innerHTML = `
-    <button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button>
-    <div><span class="account-pill">${escapeHtml(message.account_email)}</span><span class="category-pill">${escapeHtml(message.category)}</span></div>
+    <div class="detail-navigation"><button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button><div class="detail-picker message-jump"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.subject)}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden>${messages.map((item) => `<button type="button" role="menuitem" data-message-id="${item.id}" ${item.id === id ? 'aria-current="true"' : ''}><span class="message-jump-date">${formatMessagePickerDate(item.received_at)}</span><span class="message-jump-subject">${escapeHtml(item.subject)}</span></button>`).join('')}</div></div></div>
+    <div class="message-recipient"><span>收件信箱</span><b>${escapeHtml(message.account_email)}</b></div>
     <h2>${escapeHtml(message.subject)}</h2>
-    <div class="message-meta"><b>${escapeHtml(message.sender_name || message.sender_email)}</b> &lt;${escapeHtml(message.sender_email)}&gt;<br><small>${formatDate(message.received_at)}</small></div>
-    <div class="message-actions">
-      <button class="ghost" data-action="read">${message.is_read ? '標記未讀' : '標記已讀'}</button>
-      <button class="ghost" data-action="reply">回覆</button>
-      <button class="ghost" data-action="forward">轉寄</button>
-      <button class="danger" data-action="trash">移至垃圾桶</button>
+    <div class="message-meta"><div class="message-meta-line"><span class="sender-identity"><b>${escapeHtml(message.sender_name || message.sender_email)}</b>${message.sender_name && message.sender_name !== message.sender_email ? `<span>${escapeHtml(message.sender_email)}</span>` : ''}</span><small>${formatDate(message.received_at)}</small></div></div>
+    <div class="message-actions message-utility-actions">
+      <button class="ghost compact-action read-toggle ${message.is_read ? 'active' : ''}" data-action="read" aria-pressed="${Boolean(message.is_read)}"><i aria-hidden="true"></i><span>已讀</span></button>
+      <div class="detail-picker category-picker"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.category || '選擇分類')}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden><button type="button" role="menuitem" data-category="__new__">＋ 新增分類</button>${categories.map((category) => `<button type="button" role="menuitem" data-category="${escapeHtml(category)}" ${category === message.category ? 'aria-current="true"' : ''}>${escapeHtml(category)}</button>`).join('')}<button type="button" role="menuitem" data-category="未分類">未分類</button></div></div>
+      <button class="ghost compact-action" data-action="spam"><span>垃圾信</span></button>
+      <button class="ghost compact-action" data-action="download"><span>下載</span></button>
     </div>
-    <div class="mail-body"></div>`;
+    <div class="message-content-scroll"><div class="mail-body"></div><div class="inline-reply" hidden></div></div>
+    <div class="message-mobile-actions">
+      <button class="ghost compact-action" data-action="star" aria-label="${message.is_starred ? '取消星號' : '加上星號'}" title="${message.is_starred ? '取消星號' : '加上星號'}">${message.is_starred ? '★' : '☆'}</button>
+      <button class="ghost compact-action" data-action="reply"><span>回覆</span></button>
+      <button class="ghost compact-action" data-action="forward"><span>轉寄</span></button>
+      <button class="danger compact-action trash-action" data-action="trash" aria-label="移至垃圾桶" title="移至垃圾桶"><svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button>
+    </div>`;
   const layout = detail.closest('.mail-layout');
-  layout.dataset.listScrollY = String(window.scrollY);
+  if (!document.body.classList.contains('message-open')) layout.dataset.listScrollY = String(document.querySelector('#message-list-scroll')?.scrollTop || 0);
+  updateMessageHistory(id);
   layout.classList.add('mobile-detail-open');
-  if (matchMedia('(max-width: 700px)').matches) requestAnimationFrame(() => detail.scrollIntoView({ block: 'start' }));
-  detail.querySelector('[data-action="back"]').addEventListener('click', () => {
-    layout.classList.remove('mobile-detail-open');
-    detail.classList.add('empty-state');
-    detail.innerHTML = '<div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div>';
-    window.scrollTo({ top: Number(layout.dataset.listScrollY || 0), behavior: 'auto' });
+  document.body.classList.add('message-open');
+  document.querySelector('.mail-toolbar').hidden = true;
+  setComposeVisibility(false);
+  detail.scrollTop = 0;
+  detail.querySelector('[data-action="back"]').addEventListener('click', returnToMessageList);
+  const closeDetailPickers = (except = null) => detail.querySelectorAll('.detail-picker').forEach((picker) => {
+    if (picker === except) return;
+    const menu = picker.querySelector('.detail-picker-menu');
+    menu.hidden = true;
+    menu.classList.remove('floating-detail-menu');
+    menu.style.removeProperty('--picker-top');
+    menu.style.removeProperty('--picker-left');
+    picker.querySelector('.detail-picker-trigger').setAttribute('aria-expanded', 'false');
   });
+  detail.querySelectorAll('.detail-picker-trigger').forEach((trigger) => trigger.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const picker = trigger.closest('.detail-picker');
+    const menu = picker.querySelector('.detail-picker-menu');
+    const opening = menu.hidden;
+    closeDetailPickers(picker);
+    menu.hidden = !opening;
+    trigger.setAttribute('aria-expanded', String(opening));
+    if (opening && picker.classList.contains('category-picker')) {
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = Math.min(innerWidth * .5, 320);
+      menu.classList.add('floating-detail-menu');
+      menu.style.setProperty('--picker-top', `${Math.min(rect.bottom + 6, innerHeight * .65)}px`);
+      menu.style.setProperty('--picker-left', `${Math.min(Math.max(8, rect.left), innerWidth - menuWidth - 8)}px`);
+    }
+    if (opening && picker.classList.contains('message-jump')) requestAnimationFrame(() => {
+      const current = menu.querySelector('[aria-current="true"]');
+      if (current) menu.scrollTop = Math.max(0, current.offsetTop - (menu.clientHeight - current.offsetHeight) / 2);
+    });
+  }));
+  const outsidePickerHandler = (event) => { if (!detail.contains(event.target) || !event.target.closest('.detail-picker')) closeDetailPickers(); };
+  activeDetailOutsideHandler = outsidePickerHandler;
+  document.addEventListener('click', outsidePickerHandler);
+  detail.querySelectorAll('.message-jump [data-message-id]').forEach((button) => button.addEventListener('click', () => {
+    document.removeEventListener('click', outsidePickerHandler);
+    activeDetailOutsideHandler = null;
+    openMessage(Number(button.dataset.messageId));
+  }));
+  detail.querySelectorAll('.category-picker [data-category]').forEach((button) => button.addEventListener('click', async () => {
+    let category = button.dataset.category;
+    if (category === '__new__') {
+      category = prompt('輸入新分類名稱', '')?.trim();
+      if (!category) { closeDetailPickers(); return; }
+      if (!quickFolders.categories.some((folder) => folder.name === category)) {
+        quickFolders.categories.push({ id: `category-${Date.now()}`, name: category });
+        saveQuickFolders();
+      }
+    }
+    try {
+      await api(`/api/messages/${id}/category`, { method: 'PATCH', body: JSON.stringify({ category }) });
+      const local = demoMessages.find((item) => item.id === id); if (local) local.category = category;
+      const loaded = loadedMessages.find((item) => item.id === id); if (loaded) loaded.category = category;
+      showNotice(`已分類為「${category}」`);
+      document.removeEventListener('click', outsidePickerHandler);
+      activeDetailOutsideHandler = null;
+      await openMessage(id);
+    } catch (error) { showNotice(error.message, true); }
+  }));
   const body = detail.querySelector('.mail-body');
   if (message.html_body) {
     const iframe = document.createElement('iframe');
@@ -737,25 +1108,70 @@ async function openMessage(id) {
     body.append(iframe);
   } else body.innerHTML = `<pre style="white-space:pre-wrap;font:inherit">${escapeHtml(message.text_body || message.snippet)}</pre>`;
   detail.querySelector('[data-action="read"]').addEventListener('click', async (event) => {
-    setBusy(event.currentTarget, true);
-    try { await api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: !message.is_read }) }); await renderRoute(); }
-    catch (error) { showNotice(error.message, true); setBusy(event.currentTarget, false); }
+    const readButton = event.currentTarget;
+    readButton.disabled = true;
+    try {
+      const read = !Boolean(message.is_read);
+      await api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read }) });
+      message.is_read = read ? 1 : 0;
+      const loaded = loadedMessages.find((item) => item.id === id); if (loaded) loaded.is_read = message.is_read;
+      const demo = demoMessages.find((item) => item.id === id); if (demo) demo.is_read = message.is_read;
+      readButton.classList.toggle('active', read);
+      readButton.setAttribute('aria-pressed', String(read));
+      readButton.disabled = false;
+      showNotice(read ? '已標記為已讀' : '已標記為未讀');
+    }
+    catch (error) { showNotice(error.message, true); readButton.disabled = false; }
   });
+  detail.querySelector('[data-action="star"]').addEventListener('click', async () => { await toggleMessageStar(id); await openMessage(id); });
+  detail.querySelector('[data-action="spam"]').addEventListener('click', async () => {
+    const olderMessage = messages[messageIndex + 1] || null;
+    try {
+      await api(`/api/messages/${id}/move`, { method: 'PATCH', body: JSON.stringify({ folder: 'SPAM' }) });
+      const loaded = loadedMessages.find((item) => item.id === id); if (loaded) loaded.folder = 'SPAM';
+      const demo = demoMessages.find((item) => item.id === id); if (demo) demo.folder = 'SPAM';
+      showNotice('已標為垃圾信');
+      if (olderMessage) await openMessage(olderMessage.id); else await renderRoute();
+    }
+    catch (error) { showNotice(error.message, true); }
+  });
+  detail.querySelector('[data-action="download"]').addEventListener('click', () => openMessageDownloadDialog(message));
   detail.querySelector('[data-action="trash"]').addEventListener('click', async (event) => {
     if (!confirm('確定將這封郵件移至遠端信箱的垃圾桶？')) return;
     setBusy(event.currentTarget, true);
     try { await api(`/api/messages/${id}`, { method: 'DELETE' }); showNotice('郵件已移至垃圾桶'); await renderRoute(); }
     catch (error) { showNotice(error.message, true); setBusy(event.currentTarget, false); }
   });
-  detail.querySelector('[data-action="reply"]').addEventListener('click', () => {
-    openCompose({ accountId: message.account_id, to: message.sender_email, subject: message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`, text: `\n\n--- 原始郵件 ---\n${message.text_body || message.snippet}`, inReplyTo: message.thread_id });
-  });
-  detail.querySelector('[data-action="forward"]').addEventListener('click', () => {
-    openCompose({ accountId: message.account_id, subject: message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`, text: `\n\n--- 轉寄郵件 ---\n寄件者：${message.sender_email}\n${message.text_body || message.snippet}` });
-  });
-  if (!message.is_read) {
-    api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: true }) }).catch((error) => showNotice(error.message, true));
-  }
+  const openInlineComposer = (mode) => {
+    const reply = detail.querySelector('.inline-reply');
+    body.hidden = true;
+    reply.hidden = false;
+    const isReply = mode === 'reply';
+    reply.innerHTML = `<form class="inline-compose-form"><h3>${isReply ? '回覆' : '轉寄'}</h3><label>收件者<input name="to" type="email" value="${isReply ? escapeHtml(message.sender_email) : ''}" required></label><label>主旨<input name="subject" value="${escapeHtml(isReply ? (message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`) : (message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`))}" required></label><label>內容<textarea name="text" rows="8" required></textarea></label><div class="form-actions"><button class="ghost" type="button" data-inline-cancel>取消</button><button class="primary" type="submit">寄出</button></div></form>`;
+    reply.querySelector('[data-inline-cancel]').addEventListener('click', () => { reply.hidden = true; reply.innerHTML = ''; body.hidden = false; });
+    reply.querySelector('form').addEventListener('submit', async (event) => {
+      event.preventDefault(); const button = event.currentTarget.querySelector('[type="submit"]'); setBusy(button, true, '寄送中…');
+      const data = Object.fromEntries(new FormData(event.currentTarget)); data.accountId = message.account_id; data.cc = []; if (isReply) data.inReplyTo = message.thread_id;
+      try { await api('/api/send', { method: 'POST', body: JSON.stringify(data) }); showNotice('郵件已寄出'); reply.hidden = true; reply.innerHTML = ''; body.hidden = false; }
+      catch (error) { showNotice(error.message, true); setBusy(button, false); }
+    });
+    requestAnimationFrame(() => reply.querySelector('textarea').focus());
+  };
+  detail.querySelector('[data-action="reply"]').addEventListener('click', () => openInlineComposer('reply'));
+  detail.querySelector('[data-action="forward"]').addEventListener('click', () => openInlineComposer('forward'));
+  let detailTouchStart = null;
+  detail.ontouchstart = (event) => { if (!event.target.closest('input,textarea,select,button')) detailTouchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY }; };
+  detail.ontouchend = (event) => {
+    if (!detailTouchStart) return;
+    const dx = event.changedTouches[0].clientX - detailTouchStart.x; const dy = event.changedTouches[0].clientY - detailTouchStart.y; detailTouchStart = null;
+    if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+    if (!messages.length || messageIndex < 0) return;
+    const targetIndex = dx < 0
+      ? (messageIndex - 1 + messages.length) % messages.length
+      : (messageIndex + 1) % messages.length;
+    detailTouchStart = null;
+    openMessage(messages[targetIndex].id);
+  };
 }
 
 async function openCompose(draft = {}) {
@@ -768,6 +1184,7 @@ async function openCompose(draft = {}) {
 }
 
 async function mountAccounts(target, embedded = false) {
+  setComposeVisibility(false);
   await loadAccounts();
   target.innerHTML = `<div class="inline-settings">
     ${embedded ? '<div class="inline-panel-head"><div><h2>信箱帳號設定</h2><p>管理現有帳號或新增 Gmail、Yahoo 與一般信箱。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}
@@ -776,10 +1193,10 @@ async function mountAccounts(target, embedded = false) {
       <div class="account-card card"><div class="account-icon">${account.provider === 'gmail' ? 'G' : 'IM'}</div><div class="account-info"><b>${escapeHtml(account.email)}</b><small>${account.provider === 'gmail' ? 'Google OAuth' : 'IMAP / SMTP'} · ${account.last_synced_at ? `上次同步 ${formatDate(account.last_synced_at)}` : '尚未同步'}</small></div><button class="ghost sync-one" data-id="${account.id}">同步</button><button class="danger delete-account" data-id="${account.id}">移除</button></div>`).join('') : '<div class="card loading">尚未加入任何信箱。</div>'}</div>
     <h2 class="section-title" style="margin-top:32px">新增信箱</h2>
     <div class="split">
-      <form id="gmail-form" class="form-card card"><h3>Gmail</h3><p>使用 Google OAuth 授權，不會儲存 Gmail 密碼。請先建立「桌面應用程式」OAuth 憑證，並加入重新導向 URI：<br><span class="code">${escapeHtml(location.origin)}/api/oauth/google/callback</span></p><label>Google Client ID<input name="clientId" required autocomplete="off"></label><label>Google Client Secret<input name="clientSecret" type="password" required autocomplete="off"></label><div class="form-actions"><button class="primary" type="submit">連線 Gmail</button></div></form>
-      <form id="imap-form" class="form-card card"><h3>Yahoo / 一般信箱</h3><p>Yahoo 請使用「應用程式密碼」，不要填入一般登入密碼。</p><label>Email<input name="email" type="email" required></label><label>應用程式密碼<input name="password" type="password" required autocomplete="off"></label><label>IMAP 主機<input name="imapHost" value="imap.mail.yahoo.com" required></label><label>SMTP 主機<input name="smtpHost" value="smtp.mail.yahoo.com" required></label><div class="split"><label>IMAP 連接埠<input name="imapPort" type="number" value="993"></label><label>SMTP 連接埠<input name="smtpPort" type="number" value="465"></label></div><div class="form-actions"><button class="primary" type="submit">加入信箱</button></div></form>
+      <form id="gmail-form" class="form-card card provider-connect-card"><h3>Gmail</h3><p>透過 Google 官方 OAuth 頁面授權，不會儲存 Gmail 密碼。</p><button id="google-oauth-console" class="ghost provider-external" type="button">開啟 Google OAuth 設定 ↗</button><label>Google Client ID<input name="clientId" required autocomplete="off"></label><label>Google Client Secret<input name="clientSecret" type="password" required autocomplete="off"></label><p class="quick-folder-note">Callback：<span class="code">${escapeHtml(location.origin)}/api/oauth/google/callback</span></p><div class="form-actions"><button class="primary provider-connect" type="submit">連結 Gmail ↗</button></div></form>
+      <form id="imap-form" class="form-card card provider-connect-card"><h3>Yahoo</h3><p>先到 Yahoo 官方帳號安全頁建立應用程式密碼，再回來完成連線。</p><button id="yahoo-authorize" class="ghost provider-external" type="button">開啟 Yahoo 授權頁 ↗</button><label>Yahoo Email<input name="email" type="email" required></label><label>應用程式密碼<input name="password" type="password" required autocomplete="off"></label><input name="imapHost" type="hidden" value="imap.mail.yahoo.com"><input name="smtpHost" type="hidden" value="smtp.mail.yahoo.com"><input name="imapPort" type="hidden" value="993"><input name="smtpPort" type="hidden" value="465"><div class="form-actions"><button class="primary provider-connect" type="submit">連結 Yahoo</button></div></form>
     </div></div>`;
-  target.querySelector('.inline-panel-close')?.addEventListener('click', () => renderRoute());
+  target.querySelector('.inline-panel-close')?.addEventListener('click', () => target.closest('dialog') ? target.closest('dialog').close() : renderRoute());
   bindQuickFolderDeletes(target, () => mountAccounts(target, embedded));
   target.querySelector('#gmail-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
@@ -787,6 +1204,8 @@ async function mountAccounts(target, embedded = false) {
     catch (error) { showNotice(error.message, true); }
     finally { setBusy(button, false); }
   });
+  target.querySelector('#google-oauth-console').addEventListener('click', () => { window.open('https://console.cloud.google.com/apis/credentials', '_blank', 'noopener'); showNotice('請在 Google Cloud 建立 OAuth 用戶端並登記畫面上的 Callback'); });
+  target.querySelector('#yahoo-authorize').addEventListener('click', () => { window.open('https://login.yahoo.com/account/security', '_blank', 'noopener'); showNotice('請在 Yahoo 官方頁面建立應用程式密碼，再回到此頁完成連線'); });
   target.querySelector('#imap-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
     try { const data = Object.fromEntries(new FormData(event.currentTarget)); await api('/api/accounts/imap', { method: 'POST', body: JSON.stringify(data) }); showNotice('信箱已加入'); await mountAccounts(target, embedded); }
@@ -810,7 +1229,7 @@ async function renderAccounts() {
 async function mountRules(target, embedded = false) {
   const rules = await api('/api/rules');
   target.innerHTML = `<div class="inline-settings">${embedded ? '<div class="inline-panel-head"><div><h2>自動分類設定</h2><p>依寄件者或主旨新增分類條件。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}${quickFolderSection('categories')}<form id="rule-form" class="form-card card narrow"><div class="split"><label>規則名稱<input name="name" placeholder="例如：購物通知" required></label><label>分類名稱<input name="category" list="category-folder-options" placeholder="例如：購物" required><datalist id="category-folder-options">${quickFolders.categories.map((folder) => `<option value="${escapeHtml(folder.name)}"></option>`).join('')}</datalist></label></div><div class="split"><label>比對範圍<select name="field"><option value="sender">寄件者</option><option value="subject">主旨</option><option value="both">寄件者與主旨</option></select></label><label>比對方式<select name="operator"><option value="contains">包含</option><option value="equals">完全相同</option><option value="regex">正規表示式</option></select></label></div><label>比對文字<input name="value" placeholder="shopee 或 @company.com" required></label><div class="form-actions"><button class="primary">新增規則</button></div></form><h2 class="section-title" style="margin-top:32px">現有規則</h2><div class="rule-list">${rules.length ? rules.map((rule) => `<div class="rule-card card"><div><b>${escapeHtml(rule.name)}</b><div>${escapeHtml(rule.field)} ${escapeHtml(rule.operator)}「${escapeHtml(rule.value)}」→ ${escapeHtml(rule.category)}</div></div><button class="danger" data-id="${rule.id}">刪除</button></div>`).join('') : '<div class="card loading">還沒有分類規則。新規則會在下次同步時套用。</div>'}</div></div>`;
-  target.querySelector('.inline-panel-close')?.addEventListener('click', () => renderRoute());
+  target.querySelector('.inline-panel-close')?.addEventListener('click', () => target.closest('dialog') ? target.closest('dialog').close() : renderRoute());
   bindQuickFolderDeletes(target, () => mountRules(target, embedded));
   target.querySelector('#rule-form').addEventListener('submit', async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { await api('/api/rules', { method: 'POST', body: JSON.stringify(data) }); showNotice('分類規則已新增'); await mountRules(target, embedded); } catch (error) { showNotice(error.message, true); } });
   target.querySelectorAll('.rule-card button').forEach((button) => button.addEventListener('click', async () => { await api(`/api/rules/${button.dataset.id}`, { method: 'DELETE' }); await mountRules(target, embedded); }));
@@ -832,9 +1251,13 @@ function renderHelp() {
 }
 
 async function renderRoute() {
-  if (location.hash !== '#inbox') history.replaceState(null, '', '#inbox');
+  activeMessageRequest += 1;
+  history.replaceState({ mailboxView: 'list' }, '', '#inbox');
+  handledHash = '#inbox';
   view.innerHTML = '';
-  syncButton.hidden = false;
+  document.body.classList.remove('settings-open', 'message-open');
+  syncButton.hidden = true;
+  setComposeVisibility(true);
   title.textContent = '統一收件匣';
   try { await renderInbox(); view.focus(); } catch (error) { view.innerHTML = `<div class="card loading">載入失敗：${escapeHtml(error.message)}</div>`; }
 }
@@ -872,8 +1295,8 @@ quickFolderForm.addEventListener('submit', async (event) => {
   showNotice(`已新增「${name}」`);
   await renderRoute();
 });
-document.querySelector('#quick-folder-cancel').addEventListener('click', () => quickFolderDialog.close());
-document.querySelector('#quick-folder-close').addEventListener('click', () => quickFolderDialog.close());
+document.querySelector('#quick-folder-cancel').addEventListener('click', () => { quickFolderDialog.close(); setComposeVisibility(!document.body.classList.contains('settings-open')); });
+document.querySelector('#quick-folder-close').addEventListener('click', () => { quickFolderDialog.close(); setComposeVisibility(!document.body.classList.contains('settings-open')); });
 cleanupForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(cleanupForm));
@@ -925,10 +1348,49 @@ document.querySelector('#message-filter-clear').addEventListener('click', () => 
 });
 document.querySelector('#message-filter-cancel').addEventListener('click', () => messageFilterDialog.close());
 document.querySelector('#message-filter-close').addEventListener('click', () => messageFilterDialog.close());
-helpButton.addEventListener('click', () => helpDialog.showModal());
-document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
-document.querySelector('#help-done').addEventListener('click', () => helpDialog.close());
-[composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+const closeMessageDownloadDialog = () => { messageDownloadDialog.close(); downloadMessageContext = null; exportSession = null; };
+document.querySelector('#message-download-cancel').addEventListener('click', closeMessageDownloadDialog);
+document.querySelector('#message-download-close').addEventListener('click', closeMessageDownloadDialog);
+messageDownloadDialog.addEventListener('close', () => { downloadMessageContext = null; exportSession = null; });
+messageDownloadForm.addEventListener('change', () => { if (exportSession) prepareExportSelection(exportSession); });
+messageDownloadForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const session = exportSession;
+  if (!session) return;
+  if (!session.readyType) { await prepareExportSelection(session); return; }
+  const button = messageDownloadForm.querySelector('[type="submit"]');
+  try {
+    setBusy(button, true, '準備中…');
+    const files = session.readyFiles;
+    await saveExportFiles(files);
+    messageDownloadDialog.close();
+    showNotice(`已準備 ${files.length} 個檔案`);
+  } catch (error) { if (error.name !== 'AbortError') showNotice(error.message, true); }
+  finally { setBusy(button, false); }
+});
+document.querySelector('#message-share').addEventListener('click', async (event) => {
+  const session = exportSession;
+  if (!session) return;
+  if (!session.readyType) { await prepareExportSelection(session); return; }
+  const button = event.currentTarget;
+  try {
+    const files = session.readyFiles;
+    if (!navigator.share || !navigator.canShare?.({ files })) throw new Error('這個瀏覽器不支援檔案分享，請改用下載後再分享');
+    setBusy(button, true, '分享中…');
+    await navigator.share({ title: session.message.subject, files });
+    messageDownloadDialog.close();
+  } catch (error) {
+    if (error.name !== 'AbortError') showNotice(error.name === 'NotAllowedError' || /permission denied/i.test(error.message) ? '瀏覽器未允許分享。請使用外部 Chrome 開啟，或先下載檔案後分享。' : error.message, true);
+  }
+  finally { setBusy(button, false); }
+});
+const closeHelp = () => { helpDialog.close(); setComposeVisibility(!document.body.classList.contains('settings-open')); };
+helpButton.addEventListener('click', () => { setComposeVisibility(false); helpDialog.showModal(); });
+document.querySelector('#help-close').addEventListener('click', closeHelp);
+document.querySelector('#help-done').addEventListener('click', closeHelp);
+[composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog, messageDownloadDialog, settingsDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+helpDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
+quickFolderDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
 filterDrawerToggle.addEventListener('click', () => setFilterDrawer(!document.body.classList.contains('filters-open')));
 filterDrawerBackdrop.addEventListener('click', () => setFilterDrawer(false));
 document.addEventListener('pointerdown', (event) => {
@@ -938,7 +1400,12 @@ document.addEventListener('pointerdown', (event) => {
   setFilterDrawer(false);
 });
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && document.body.classList.contains('filters-open')) setFilterDrawer(false); });
-document.querySelector('#download-message').addEventListener('click', () => { if (actionMessageId) downloadMessage(actionMessageId); });
+document.querySelector('#download-message').addEventListener('click', async () => {
+  if (!actionMessageId) return;
+  hideMessageMenu();
+  try { openMessageDownloadDialog(await api(`/api/messages/${actionMessageId}`)); }
+  catch (error) { showNotice(error.message, true); }
+});
 document.addEventListener('pointerdown', (event) => { if (!messageActionMenu.hidden && !messageActionMenu.contains(event.target)) hideMessageMenu(); });
 window.addEventListener('scroll', hideMessageMenu, { passive: true });
 
@@ -948,5 +1415,59 @@ syncButton.addEventListener('click', async () => {
   catch (error) { showNotice(error.message, true); }
   finally { setBusy(syncButton, false); }
 });
-window.addEventListener('hashchange', renderRoute);
-renderRoute();
+async function syncInboxAutomatically() {
+  if (autoSyncRunning || document.hidden || !accounts.length) return;
+  autoSyncRunning = true;
+  lastAutoSync = Date.now();
+  try {
+    const results = await api('/api/sync', { method: 'POST' });
+    const failed = results.filter((item) => !item.ok);
+    if (failed.length) showNotice(`有 ${failed.length} 個信箱同步失敗：${failed[0].error}`, true);
+    if (document.body.classList.contains('message-open') || document.querySelector('dialog[open]')) autoSyncRefreshPending = true;
+    else await refreshInboxData?.({ preserve: true });
+  } catch (error) { showNotice(`自動同步失敗：${error.message}`, true); }
+  finally { autoSyncRunning = false; }
+}
+
+async function handleMailboxNavigation() {
+  if (handledHash === location.hash) return;
+  handledHash = location.hash;
+  const match = location.hash.match(/^#inbox\/message\/(\d+)$/);
+  if (match) {
+    if (!document.querySelector('#message-list')) await renderRoute();
+    try { await openMessage(Number(match[1])); } catch (error) { showNotice(error.message, true); }
+  } else if (document.body.classList.contains('message-open')) closeMessageDetail();
+  else if (!document.querySelector('#message-list')) await renderRoute();
+}
+
+async function initializeAppDownload() {
+  const link = document.querySelector('#app-download');
+  link.addEventListener('click', (event) => {
+    if (!link.hasAttribute('href')) { event.preventDefault(); showNotice('App 安裝檔尚未上傳，完成後可從這裡直接下載。'); }
+  });
+  try {
+    const response = await fetch('/app-release.json', { cache: 'no-store' });
+    if (!response.ok) return;
+    const release = await response.json();
+    if (!release.downloadUrl) return;
+    const url = new URL(release.downloadUrl, location.href);
+    if (!['https:', 'http:'].includes(url.protocol) || !url.pathname.endsWith('.apk')) return;
+    link.href = url.href;
+    link.download = `mailbox-manager-${release.version || 'latest'}.apk`;
+    link.setAttribute('aria-disabled', 'false');
+    link.title = release.version ? `下載 App ${release.version}` : '下載 App';
+  } catch { /* Keep the download entry unavailable until a release is configured. */ }
+}
+
+window.addEventListener('popstate', handleMailboxNavigation);
+window.addEventListener('hashchange', handleMailboxNavigation);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && Date.now() - lastAutoSync > 60000) syncInboxAutomatically();
+});
+setInterval(syncInboxAutomatically, 5 * 60 * 1000);
+const initialMessageId = location.hash.match(/^#inbox\/message\/(\d+)$/)?.[1];
+renderRoute().then(async () => {
+  if (initialMessageId) await openMessage(Number(initialMessageId));
+  await syncInboxAutomatically();
+}).catch((error) => showNotice(error.message, true));
+initializeAppDownload();
