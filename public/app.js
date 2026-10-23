@@ -746,12 +746,13 @@ async function openMessage(id) {
   detail.classList.remove('empty-state');
   detail.innerHTML = `
     <div class="detail-navigation"><button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button><div class="detail-picker message-jump"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.subject)}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden>${messages.map((item) => `<button type="button" role="menuitem" data-message-id="${item.id}" ${item.id === id ? 'aria-current="true"' : ''}>${escapeHtml(item.subject)}</button>`).join('')}</div></div></div>
+    <div class="message-recipient"><span>收件信箱</span><b>${escapeHtml(message.account_email)}</b></div>
     <h2>${escapeHtml(message.subject)}</h2>
-    <div class="message-meta"><div class="message-meta-line"><span title="${escapeHtml(message.sender_email)}"><b>${escapeHtml(message.sender_name || message.sender_email)}</b></span><small>${formatDate(message.received_at)}</small></div></div>
-    <div class="message-labels"><span class="account-pill">${escapeHtml(message.account_email)}</span><div class="detail-picker category-picker"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.category || '選擇分類')}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden><button type="button" role="menuitem" data-category="__new__">＋ 新增分類</button>${categories.map((category) => `<button type="button" role="menuitem" data-category="${escapeHtml(category)}" ${category === message.category ? 'aria-current="true"' : ''}>${escapeHtml(category)}</button>`).join('')}<button type="button" role="menuitem" data-category="未分類">未分類</button></div></div></div>
+    <div class="message-meta"><div class="message-meta-line"><span class="sender-identity"><b>${escapeHtml(message.sender_name || message.sender_email)}</b>${message.sender_name && message.sender_name !== message.sender_email ? `<span>${escapeHtml(message.sender_email)}</span>` : ''}</span><small>${formatDate(message.received_at)}</small></div></div>
     <div class="message-actions">
       <button class="ghost compact-action" data-action="star" aria-label="${message.is_starred ? '取消星號' : '加上星號'}" title="${message.is_starred ? '取消星號' : '加上星號'}">${message.is_starred ? '★' : '☆'}</button>
       <button class="ghost compact-action" data-action="read"><span>${message.is_read ? '標記未讀' : '標記已讀'}</span></button>
+      <div class="detail-picker category-picker"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.category || '選擇分類')}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden><button type="button" role="menuitem" data-category="__new__">＋ 新增分類</button>${categories.map((category) => `<button type="button" role="menuitem" data-category="${escapeHtml(category)}" ${category === message.category ? 'aria-current="true"' : ''}>${escapeHtml(category)}</button>`).join('')}<button type="button" role="menuitem" data-category="未分類">未分類</button></div></div>
       <button class="ghost compact-action" data-action="reply"><span>回覆</span></button>
       <button class="ghost compact-action" data-action="forward"><span>轉寄</span></button>
       <button class="ghost compact-action" data-action="spam"><span>標為垃圾信</span></button>
@@ -778,7 +779,11 @@ async function openMessage(id) {
   });
   const closeDetailPickers = (except = null) => detail.querySelectorAll('.detail-picker').forEach((picker) => {
     if (picker === except) return;
-    picker.querySelector('.detail-picker-menu').hidden = true;
+    const menu = picker.querySelector('.detail-picker-menu');
+    menu.hidden = true;
+    menu.classList.remove('floating-detail-menu');
+    menu.style.removeProperty('--picker-top');
+    menu.style.removeProperty('--picker-left');
     picker.querySelector('.detail-picker-trigger').setAttribute('aria-expanded', 'false');
   });
   detail.querySelectorAll('.detail-picker-trigger').forEach((trigger) => trigger.addEventListener('click', (event) => {
@@ -789,6 +794,13 @@ async function openMessage(id) {
     closeDetailPickers(picker);
     menu.hidden = !opening;
     trigger.setAttribute('aria-expanded', String(opening));
+    if (opening && picker.classList.contains('category-picker')) {
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = Math.min(innerWidth * .5, 320);
+      menu.classList.add('floating-detail-menu');
+      menu.style.setProperty('--picker-top', `${Math.min(rect.bottom + 6, innerHeight * .65)}px`);
+      menu.style.setProperty('--picker-left', `${Math.min(Math.max(8, rect.left), innerWidth - menuWidth - 8)}px`);
+    }
   }));
   const outsidePickerHandler = (event) => { if (!detail.contains(event.target) || !event.target.closest('.detail-picker')) closeDetailPickers(); };
   activeDetailOutsideHandler = outsidePickerHandler;

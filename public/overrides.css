@@ -2,7 +2,11 @@
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 #notice{z-index:1000;top:max(12px,env(safe-area-inset-top));pointer-events:none}
 .notice{pointer-events:auto}
-.message-list{border:0!important;box-shadow:0 8px 24px rgba(26,48,38,.07)}
+.mail-layout{display:block;min-height:0}
+.message-list{width:100%;border:0!important;box-shadow:0 8px 24px rgba(26,48,38,.07)}
+.message-detail{display:none;flex-direction:column;width:100%;height:min(780px,calc(100vh - 180px));min-height:520px;overflow:hidden}
+.mail-layout.mobile-detail-open .message-list{display:none}
+.mail-layout.mobile-detail-open .message-detail{display:flex}
 .detail-navigation{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
 .detail-navigation .mobile-back{margin:0}
 .message-jump{display:flex;align-items:center;justify-content:flex-end;min-width:0;font-size:.78rem;font-weight:800}
@@ -12,8 +16,10 @@
 .detail-picker-menu{position:absolute;z-index:40;top:calc(100% + 6px);right:0;width:min(320px,50vw);max-height:42dvh;padding:6px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;background:var(--card);box-shadow:0 16px 40px rgba(20,39,30,.2)}
 .detail-picker-menu button{display:block;width:100%;padding:9px 10px;background:transparent;color:var(--ink);font-size:.76rem;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail-picker-menu button:hover,.detail-picker-menu button:focus-visible,.detail-picker-menu button[aria-current="true"]{background:#e7ede4;color:var(--green)}
-.message-labels{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:12px 0 6px}
-.message-labels .account-pill{margin:0}
+.detail-picker-menu.floating-detail-menu{position:fixed;z-index:90;top:var(--picker-top);left:var(--picker-left);right:auto;width:min(320px,50vw)}
+.message-recipient{display:flex;align-items:center;gap:7px;margin:2px 0 8px;color:var(--muted);font-size:.76rem}
+.message-recipient span{font-weight:700}
+.message-recipient b{padding:5px 9px;border-radius:999px;background:#e7ede4;color:#365747;font-weight:750}
 .category-picker .detail-picker-trigger{width:auto;max-width:180px;border:0;border-radius:999px;padding:6px 10px;background:#f3ead0;color:#755b13;font-size:.78rem;font-weight:800}
 .category-picker .detail-picker-menu{left:0;right:auto}
 .message-actions{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
@@ -29,6 +35,8 @@
 .message-meta-line{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
 .message-meta-line>span{min-width:0;overflow-wrap:anywhere}
 .message-meta-line small{flex:0 0 auto;white-space:nowrap}
+.sender-identity{display:flex;align-items:baseline;gap:7px;min-width:0}
+.sender-identity>span{color:var(--muted);font-size:.82em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .message-content-scroll{flex:1 1 auto;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .message-primary-line .message-date-filter{max-width:none;padding:5px 8px;border:1px solid #d3dbd2;border-radius:999px;background:#f1f4ee;color:#315848;font-size:.72rem;font-weight:800;line-height:1;white-space:nowrap}
 .message-primary-line .message-date-filter:hover,.message-primary-line .message-date-filter:focus-visible{border-color:var(--green);background:#e7ede4;outline:none}
@@ -52,7 +60,8 @@
   #inbox-content{height:100%!important}
   body.settings-open #inbox-content{overflow-x:hidden;overflow-y:auto;padding-bottom:24px}
   .message-list{border:0!important;box-shadow:none!important}
-  .message-detail{display:flex!important;flex-direction:column;height:100%;overflow:hidden!important;border:0!important;box-shadow:none!important;padding:12px 10px 0!important}
+  .message-detail{display:none!important;height:100%;min-height:0;overflow:hidden!important;border:0!important;box-shadow:none!important;padding:12px 10px 0!important}
+  .mail-layout.mobile-detail-open .message-detail{display:flex!important}
   .detail-navigation{position:static;margin:0 0 14px;padding:0 0 10px;background:var(--card);border-bottom:1px solid var(--line)}
   .detail-navigation .mobile-back{display:inline-flex!important;flex:0 0 auto;margin:0;padding:8px 10px;font-size:.78rem}
   .message-jump{flex:1;justify-content:flex-end}
@@ -68,8 +77,11 @@
   .message-primary-line .message-date-filter{font-size:.66rem;padding:5px 6px}
   .message-secondary-line .message-source-filter{font-size:.7rem;padding:4px 7px}
   .category-picker .detail-picker-trigger{width:auto;max-width:160px}
+  .message-recipient{margin-bottom:5px;font-size:.7rem}
   .message-meta-line{align-items:flex-start;font-size:.76rem}
   .message-meta-line small{font-size:.7rem}
+  .sender-identity{gap:5px;overflow:hidden}
+  .sender-identity>span{font-size:.76em}
   .message-content-scroll{padding-bottom:82px}
   .mail-toolbar{flex-wrap:nowrap!important;overflow-x:auto!important;overflow-y:visible;scrollbar-width:none}
   .mail-toolbar::-webkit-scrollbar{display:none}
