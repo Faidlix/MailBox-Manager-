@@ -36,6 +36,8 @@ let quickFolders = loadQuickFolders();
 let quickFolderType = 'accounts';
 let cleanupMode = 'date';
 let activeDetailOutsideHandler = null;
+let activeSelectionOutsideHandler = null;
+let activeMessageRequest = 0;
 let downloadMessageContext = null;
 const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
 let loadedMessages = [];
@@ -197,6 +199,11 @@ function formatMessageGroupDate(value) {
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}（${weekday}）`;
 }
 
+function formatMessagePickerDate(value) {
+  const date = messageDate(value);
+  return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+}
+
 function accountOptions(selected = '') {
   return accounts.map((account) => `<option value="${account.id}" ${String(account.id) === String(selected) ? 'selected' : ''}>${escapeHtml(account.email)} · ${account.provider === 'gmail' ? 'Gmail' : 'IMAP'}</option>`).join('');
 }
@@ -262,9 +269,8 @@ async function renderInbox() {
   const states = [['all', '全部郵件'], ['unread', '未讀'], ['starred', '星號'], ['archive', '封存'], ['spam', '垃圾郵件'], ['trash', '垃圾桶']];
   const inboxContent = document.querySelector('#inbox-content');
   const mailShell = () => `<div class="mail-toolbar card" aria-label="信件操作列">
-    <label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label>
+    <div class="select-all-wrap"><label class="select-all-control"><input id="select-all-messages" type="checkbox"><span>全選</span></label><div id="selection-scope" class="selection-scope" hidden><button id="select-current-page" type="button">本頁 100 封</button><button id="select-all-results" type="button">全部信件</button></div></div>
     <button id="message-filter" class="toolbar-action" type="button"><span aria-hidden="true">☷</span><span id="message-filter-label">篩選</span></button><button id="message-filter-reset" class="toolbar-action filter-reset" type="button" aria-label="重設全部篩選" title="重設全部篩選" hidden>×</button>
-    <span id="selected-count" class="selected-count">未選取</span><div id="selection-scope" class="selection-scope" hidden><span>選取：</span><button id="select-current-page" type="button">本頁 100 封</button><button id="select-all-results" type="button">全部信件</button></div>
     <button id="bulk-star" class="toolbar-action icon-only" type="button" disabled aria-label="切換星號" title="星號"><span aria-hidden="true">★</span></button>
     <div class="toolbar-menu-wrap"><button id="bulk-move" class="toolbar-action" type="button" disabled>分類</button><div id="move-options" class="toolbar-menu" hidden><button type="button" data-bulk-category="__new__">＋ 新增分類</button>${categories.map((category) => `<button type="button" data-bulk-category="${escapeHtml(category)}">${escapeHtml(category)}</button>`).join('')}<button type="button" data-bulk-category="未分類">未分類</button></div></div>
     <button id="bulk-spam" class="toolbar-action" type="button" disabled>垃圾信</button>
@@ -328,13 +334,19 @@ function updateBulkToolbar() {
   if (!selectAll) return;
   selectAll.checked = pageMessages.length > 0 && selectedOnPage.length === pageMessages.length;
   selectAll.indeterminate = selectedOnPage.length > 0 && selectedOnPage.length < pageMessages.length;
-  document.querySelector('#selected-count').textContent = selected.length ? `已選 ${selected.length} 封` : `共 ${messages.length} 封`;
   const selectionScope = document.querySelector('#selection-scope');
   selectionScope.hidden = !selectionScopeRequested;
+  if (selectionScopeRequested && matchMedia('(max-width:700px)').matches) {
+    const selectRect = selectAll.getBoundingClientRect();
+    selectionScope.style.setProperty('--scope-top', `${selectRect.bottom + 7}px`);
+    selectionScope.style.setProperty('--scope-left', `${Math.max(8, selectRect.left)}px`);
+  }
   document.querySelector('#select-current-page').textContent = `本頁 ${pageMessages.length} 封`;
   const selectAllResults = document.querySelector('#select-all-results');
   selectAllResults.textContent = `全部 ${messages.length} 封`;
   selectAllResults.hidden = messages.length <= pageMessages.length;
+  const countSummary = document.querySelector('#message-count-summary');
+  if (countSummary) countSummary.textContent = selected.length ? String(selected.length) : `${pageMessages.length}/${messages.length}`;
   const filterActive = Object.values(messageViewFilter).some(Boolean) || Boolean(inboxFilters.accountId || inboxFilters.category || inboxFilters.state !== 'all' || document.querySelector('#search-input')?.value);
   const filterLabels = [];
   if (inboxFilters.category) filterLabels.push(inboxFilters.category);
@@ -436,22 +448,31 @@ function bindBulkToolbar() {
   selectAll.addEventListener('change', () => {
     selectionScopeRequested = selectAll.checked;
     const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
-    messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => {
-      if (selectAll.checked) selectedMessageIds.add(message.id); else selectedMessageIds.delete(message.id);
-    });
+    if (selectAll.checked) messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => selectedMessageIds.add(message.id));
+    else selectedMessageIds.clear();
     renderMessageList();
   });
   document.querySelector('#select-current-page').addEventListener('click', () => {
     selectedMessageIds.clear();
     const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
     messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE).forEach((message) => selectedMessageIds.add(message.id));
+    selectionScopeRequested = false;
     renderMessageList();
   });
   document.querySelector('#select-all-results').addEventListener('click', () => {
     selectedMessageIds.clear();
     messages.forEach((message) => selectedMessageIds.add(message.id));
+    selectionScopeRequested = false;
     renderMessageList();
   });
+  if (activeSelectionOutsideHandler) document.removeEventListener('pointerdown', activeSelectionOutsideHandler);
+  activeSelectionOutsideHandler = (event) => {
+    if (!selectionScopeRequested || event.target.closest('.select-all-wrap')) return;
+    selectionScopeRequested = false;
+    selectedMessageIds.clear();
+    renderMessageList();
+  };
+  document.addEventListener('pointerdown', activeSelectionOutsideHandler);
   document.querySelector('#message-filter').addEventListener('click', openMessageFilterDialog);
   document.querySelector('#message-filter-reset').addEventListener('click', async () => {
     Object.assign(messageViewFilter, { fromDate: '', toDate: '', sender: '', subject: '' });
@@ -523,7 +544,8 @@ function renderMessageList() {
   const pageStart = (messagePage - 1) * MESSAGE_PAGE_SIZE;
   const pageMessages = messages.slice(pageStart, pageStart + MESSAGE_PAGE_SIZE);
   pagination.hidden = false;
-  pagination.innerHTML = `<button type="button" data-page-direction="previous" ${messagePage === 1 ? 'disabled' : ''}>上一頁</button><span>第 ${messagePage} / ${totalPages} 頁 · 本頁 ${pageMessages.length} 封 · 共 ${messages.length} 封</span><button type="button" data-page-direction="next" ${messagePage === totalPages ? 'disabled' : ''}>下一頁</button>`;
+  const countText = selectedMessageIds.size ? String(selectedMessageIds.size) : `${pageMessages.length}/${messages.length}`;
+  pagination.innerHTML = `<span id="message-count-summary" class="message-count-summary">${countText}</span><button type="button" data-page-direction="previous" ${messagePage === 1 ? 'disabled' : ''}>上一頁</button><span class="message-page-summary">第 ${messagePage}/${totalPages} 頁</span><button type="button" data-page-direction="next" ${messagePage === totalPages ? 'disabled' : ''}>下一頁</button>`;
   const messageRow = (message) => `
     <div class="message-swipe" data-id="${message.id}">
       <div class="swipe-action archive"><span>⇥</span>封存</div><div class="swipe-action delete">刪除<span>⌫</span></div>
@@ -837,18 +859,20 @@ function openMessageDownloadDialog(message) {
 }
 
 async function openMessage(id) {
+  const requestToken = ++activeMessageRequest;
   if (activeDetailOutsideHandler) {
     document.removeEventListener('click', activeDetailOutsideHandler);
     activeDetailOutsideHandler = null;
   }
   const message = await api(`/api/messages/${id}`);
+  if (requestToken !== activeMessageRequest) return;
   document.querySelectorAll('.message-row').forEach((row) => row.classList.toggle('selected', Number(row.dataset.id) === id));
   const detail = document.querySelector('#message-detail');
   const categories = [...new Set([...loadedMessages.map((item) => item.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   const messageIndex = messages.findIndex((item) => item.id === id);
   detail.classList.remove('empty-state');
   detail.innerHTML = `
-    <div class="detail-navigation"><button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button><div class="detail-picker message-jump"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.subject)}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden>${messages.map((item) => `<button type="button" role="menuitem" data-message-id="${item.id}" ${item.id === id ? 'aria-current="true"' : ''}>${escapeHtml(item.subject)}</button>`).join('')}</div></div></div>
+    <div class="detail-navigation"><button class="ghost mobile-back" type="button" data-action="back">‹ 返回信件列表</button><div class="detail-picker message-jump"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.subject)}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden>${messages.map((item) => `<button type="button" role="menuitem" data-message-id="${item.id}" ${item.id === id ? 'aria-current="true"' : ''}><span class="message-jump-date">${formatMessagePickerDate(item.received_at)}</span><span class="message-jump-subject">${escapeHtml(item.subject)}</span></button>`).join('')}</div></div></div>
     <div class="message-recipient"><span>收件信箱</span><b>${escapeHtml(message.account_email)}</b></div>
     <h2>${escapeHtml(message.subject)}</h2>
     <div class="message-meta"><div class="message-meta-line"><span class="sender-identity"><b>${escapeHtml(message.sender_name || message.sender_email)}</b>${message.sender_name && message.sender_name !== message.sender_email ? `<span>${escapeHtml(message.sender_email)}</span>` : ''}</span><small>${formatDate(message.received_at)}</small></div></div>
@@ -873,6 +897,7 @@ async function openMessage(id) {
   setComposeVisibility(false);
   detail.scrollTop = 0;
   detail.querySelector('[data-action="back"]').addEventListener('click', () => {
+    activeMessageRequest += 1;
     if (activeDetailOutsideHandler) document.removeEventListener('click', activeDetailOutsideHandler);
     activeDetailOutsideHandler = null;
     layout.classList.remove('mobile-detail-open');
@@ -908,6 +933,10 @@ async function openMessage(id) {
       menu.style.setProperty('--picker-top', `${Math.min(rect.bottom + 6, innerHeight * .65)}px`);
       menu.style.setProperty('--picker-left', `${Math.min(Math.max(8, rect.left), innerWidth - menuWidth - 8)}px`);
     }
+    if (opening && picker.classList.contains('message-jump')) requestAnimationFrame(() => {
+      const current = menu.querySelector('[aria-current="true"]');
+      if (current) menu.scrollTop = Math.max(0, current.offsetTop - (menu.clientHeight - current.offsetHeight) / 2);
+    });
   }));
   const outsidePickerHandler = (event) => { if (!detail.contains(event.target) || !event.target.closest('.detail-picker')) closeDetailPickers(); };
   activeDetailOutsideHandler = outsidePickerHandler;
@@ -946,19 +975,20 @@ async function openMessage(id) {
     body.append(iframe);
   } else body.innerHTML = `<pre style="white-space:pre-wrap;font:inherit">${escapeHtml(message.text_body || message.snippet)}</pre>`;
   detail.querySelector('[data-action="read"]').addEventListener('click', async (event) => {
-    event.currentTarget.disabled = true;
+    const readButton = event.currentTarget;
+    readButton.disabled = true;
     try {
       const read = !Boolean(message.is_read);
       await api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read }) });
       message.is_read = read ? 1 : 0;
       const loaded = loadedMessages.find((item) => item.id === id); if (loaded) loaded.is_read = message.is_read;
       const demo = demoMessages.find((item) => item.id === id); if (demo) demo.is_read = message.is_read;
-      event.currentTarget.classList.toggle('active', read);
-      event.currentTarget.setAttribute('aria-pressed', String(read));
-      event.currentTarget.disabled = false;
+      readButton.classList.toggle('active', read);
+      readButton.setAttribute('aria-pressed', String(read));
+      readButton.disabled = false;
       showNotice(read ? '已標記為已讀' : '已標記為未讀');
     }
-    catch (error) { showNotice(error.message, true); event.currentTarget.disabled = false; }
+    catch (error) { showNotice(error.message, true); readButton.disabled = false; }
   });
   detail.querySelector('[data-action="star"]').addEventListener('click', async () => { await toggleMessageStar(id); await openMessage(id); });
   detail.querySelector('[data-action="spam"]').addEventListener('click', async () => {
@@ -997,8 +1027,8 @@ async function openMessage(id) {
   detail.querySelector('[data-action="reply"]').addEventListener('click', () => openInlineComposer('reply'));
   detail.querySelector('[data-action="forward"]').addEventListener('click', () => openInlineComposer('forward'));
   let detailTouchStart = null;
-  detail.addEventListener('touchstart', (event) => { if (!event.target.closest('input,textarea,select,button')) detailTouchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY }; }, { passive: true });
-  detail.addEventListener('touchend', (event) => {
+  detail.ontouchstart = (event) => { if (!event.target.closest('input,textarea,select,button')) detailTouchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY }; };
+  detail.ontouchend = (event) => {
     if (!detailTouchStart) return;
     const dx = event.changedTouches[0].clientX - detailTouchStart.x; const dy = event.changedTouches[0].clientY - detailTouchStart.y; detailTouchStart = null;
     if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
@@ -1006,8 +1036,9 @@ async function openMessage(id) {
     const targetIndex = dx < 0
       ? (messageIndex - 1 + messages.length) % messages.length
       : (messageIndex + 1) % messages.length;
+    detailTouchStart = null;
     openMessage(messages[targetIndex].id);
-  }, { passive: true });
+  };
 }
 
 async function openCompose(draft = {}) {
