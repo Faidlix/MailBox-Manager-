@@ -93,6 +93,19 @@
       <div class="form-actions"><button type="submit" class="primary">套用篩選</button><button id="message-filter-clear" type="button" class="ghost">清除篩選</button><button id="message-filter-cancel" type="button" class="ghost">取消</button></div>
     </form>
   </dialog>
+  <dialog id="message-download-dialog" class="app-dialog download-dialog" aria-labelledby="message-download-title">
+    <form id="message-download-form" class="form-card download-form">
+      <div class="dialog-heading"><div><p class="eyebrow">EXPORT MESSAGE</p><h2 id="message-download-title">下載或分享信件</h2></div><button id="message-download-close" class="dialog-x" type="button" aria-label="關閉下載視窗">×</button></div>
+      <p id="message-download-subject" class="download-subject"></p>
+      <fieldset class="download-options">
+        <label><input type="radio" name="exportType" value="eml" checked><span><b>完整信件</b><small>EML 格式，保留文字、排版、圖片與附件</small></span></label>
+        <label><input type="radio" name="exportType" value="pdf"><span><b>整張 PDF</b><small>開啟系統列印視窗並另存成 PDF</small></span></label>
+        <label><input type="radio" name="exportType" value="attachments"><span><b>僅附件</b><small>匯出信件內所有一般附件</small></span></label>
+        <label><input type="radio" name="exportType" value="images"><span><b>僅圖片</b><small>匯出信件內嵌或附加的圖片</small></span></label>
+      </fieldset>
+      <div class="download-actions"><button id="message-download-cancel" class="ghost" type="button">取消</button><button id="message-share" class="ghost" type="button">分享</button><button class="primary" type="submit">下載</button></div>
+    </form>
+  </dialog>
   <div id="message-action-menu" class="message-action-menu" role="menu" hidden>
     <button id="download-message" type="button" role="menuitem"><span aria-hidden="true">⇩</span><span><b>下載完整信件</b><small>保留排版、圖片與附件的 .eml</small></span></button>
   </div>

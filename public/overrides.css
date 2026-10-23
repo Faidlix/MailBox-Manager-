@@ -25,9 +25,17 @@
 .message-actions{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
 .message-actions::-webkit-scrollbar{display:none}
 .compact-action{display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:0 0 auto;min-height:38px;padding:7px 10px;font-size:.8rem;white-space:nowrap}
-.compact-action:first-child{font-size:1.15rem}
+.message-mobile-actions .compact-action:first-child{font-size:1.15rem}
 .compact-action span{font-size:.72rem}
 .trash-action{margin-left:auto;font-size:1.15rem}
+.message-utility-actions{overflow:visible}
+.read-toggle i{position:relative;width:30px;height:18px;flex:0 0 auto;border-radius:999px;background:#c8cec8;transition:background .16s ease}
+.read-toggle i::after{content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.22);transition:transform .16s ease}
+.read-toggle.active i{background:var(--green)}
+.read-toggle.active i::after{transform:translateX(12px)}
+.message-mobile-actions{display:flex;align-items:center;gap:7px;flex:0 0 auto;padding:10px 0;background:var(--card);border-top:1px solid var(--line)}
+.message-mobile-actions .compact-action{min-width:42px}
+.message-open .compose-fab{display:none!important}
 .trash-icon{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .toolbar-action.icon-only{width:38px;min-width:38px;padding:0;justify-content:center;font-size:1.05rem}
 .compose-modal-form textarea,.inline-compose-form textarea{resize:vertical;max-width:100%}
@@ -38,6 +46,20 @@
 .sender-identity{display:flex;align-items:baseline;gap:7px;min-width:0}
 .sender-identity>span{color:var(--muted);font-size:.82em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .message-content-scroll{flex:1 1 auto;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.download-form{gap:14px}
+.download-subject{margin:0;color:var(--muted);font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.download-options{display:grid;gap:8px;margin:0;padding:0;border:0}
+.download-options label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:11px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#f8f9f5;cursor:pointer}
+.download-options label:has(input:checked){border-color:var(--green);background:#edf3e8}
+.download-options input{width:19px;height:19px;margin:0;accent-color:var(--green)}
+.download-options b,.download-options small{display:block}
+.download-options small{margin-top:3px;color:var(--muted);font-size:.72rem;font-weight:500}
+.download-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.download-actions button{width:100%}
+@media(min-width:701px){
+  .message-mobile-actions{order:1;padding:0 0 10px;border-top:0}
+  .message-content-scroll{order:2}
+}
 .message-primary-line .message-date-filter{max-width:none;padding:5px 8px;border:1px solid #d3dbd2;border-radius:999px;background:#f1f4ee;color:#315848;font-size:.72rem;font-weight:800;line-height:1;white-space:nowrap}
 .message-primary-line .message-date-filter:hover,.message-primary-line .message-date-filter:focus-visible{border-color:var(--green);background:#e7ede4;outline:none}
 .message-secondary-line .message-source-filter{padding:5px 9px;border:1px solid #c8d5cb;border-radius:999px;background:#e7ede4;color:#315848;font-weight:850;line-height:1.1}
@@ -70,9 +92,9 @@
   .message-detail h2{margin-top:10px}
   .message-actions{gap:4px;margin:12px 0}
   .compact-action{min-width:0;width:auto;height:38px;padding:0 7px;font-size:.7rem}
-  .compact-action:first-child,.trash-action{min-width:38px;width:38px;padding:0;font-size:1rem}
+  .message-mobile-actions .compact-action:first-child,.trash-action{min-width:38px;width:38px;padding:0;font-size:1rem}
   .compact-action span{display:inline;font-size:.68rem}
-  .compact-action:first-child span{display:none}
+  .message-mobile-actions .compact-action:first-child span{display:none}
   .trash-action{margin-left:auto}
   .message-primary-line .message-date-filter{font-size:.66rem;padding:5px 6px}
   .message-secondary-line .message-source-filter{font-size:.7rem;padding:4px 7px}
@@ -82,7 +104,19 @@
   .message-meta-line small{font-size:.7rem}
   .sender-identity{gap:5px;overflow:hidden}
   .sender-identity>span{font-size:.76em}
-  .message-content-scroll{padding-bottom:82px}
+  .message-content-scroll{padding-bottom:10px}
+  .message-mobile-actions{position:relative;z-index:12;margin:0 -10px;padding:9px 10px calc(9px + env(safe-area-inset-bottom));box-shadow:0 -10px 24px rgba(26,48,38,.08)}
+  .message-mobile-actions .compact-action{flex:1 1 auto;height:42px}
+  .message-mobile-actions .trash-action{flex:0 0 42px;margin-left:0}
+  .message-utility-actions{gap:5px;margin:8px 0 10px;overflow:visible}
+  .message-utility-actions .compact-action{height:36px;padding:0 8px}
+  .read-toggle i{width:28px;height:16px}
+  .read-toggle i::after{top:2px;left:2px}
+  .read-toggle.active i::after{transform:translateX(12px)}
+  .download-dialog{width:calc(100% - 18px)}
+  .download-form{padding:17px 14px}
+  .download-actions{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .download-actions button{min-width:0;padding:10px 6px}
   .mail-toolbar{flex-wrap:nowrap!important;overflow-x:auto!important;overflow-y:visible;scrollbar-width:none}
   .mail-toolbar::-webkit-scrollbar{display:none}
   .mail-toolbar>*{flex:0 0 auto}

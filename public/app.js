@@ -13,6 +13,8 @@ const cleanupDialog = document.querySelector('#cleanup-dialog');
 const cleanupForm = document.querySelector('#cleanup-form');
 const messageFilterDialog = document.querySelector('#message-filter-dialog');
 const messageFilterForm = document.querySelector('#message-filter-form');
+const messageDownloadDialog = document.querySelector('#message-download-dialog');
+const messageDownloadForm = document.querySelector('#message-download-form');
 const filterDrawerToggle = document.querySelector('#filter-drawer-toggle');
 const filterDrawerBackdrop = document.querySelector('#filter-drawer-backdrop');
 const messageActionMenu = document.querySelector('#message-action-menu');
@@ -34,6 +36,7 @@ let quickFolders = loadQuickFolders();
 let quickFolderType = 'accounts';
 let cleanupMode = 'date';
 let activeDetailOutsideHandler = null;
+let downloadMessageContext = null;
 const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
 let loadedMessages = [];
 const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
@@ -708,29 +711,129 @@ function demoEml(message) {
 async function downloadMessage(id) {
   hideMessageMenu();
   try {
-    let blob;
-    let subject = `message-${id}`;
-    if (demoMode) {
-      const message = await api(`/api/messages/${id}`);
-      subject = message.subject;
-      blob = new Blob([demoEml(message)], { type: 'message/rfc822;charset=utf-8' });
-    } else {
-      const message = await api(`/api/messages/${id}`);
-      subject = message.subject;
-      const response = await fetch(`/api/messages/${id}/download`);
-      if (!response.ok) throw new Error('下載信件失敗');
-      blob = await response.blob();
-    }
-    const filename = `${String(subject || 'message').replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 80)}.eml`;
+    const message = await api(`/api/messages/${id}`);
+    const file = await getMessageEmlFile(message);
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
+    link.href = URL.createObjectURL(file);
+    link.download = file.name;
     document.body.append(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     showNotice('信件已下載');
   } catch (error) { showNotice(error.message, true); }
+}
+
+const safeFilename = (value = 'message') => String(value).replace(/[\\/:*?"<>|\r\n]/g, '_').trim().slice(0, 80) || 'message';
+
+async function getMessageEmlFile(message) {
+  let blob;
+  if (demoMode) blob = new Blob([demoEml(message)], { type: 'message/rfc822;charset=utf-8' });
+  else {
+    const response = await fetch(`/api/messages/${message.id}/download`);
+    if (!response.ok) throw new Error('下載信件失敗');
+    blob = await response.blob();
+  }
+  return new File([blob], `${safeFilename(message.subject)}.eml`, { type: 'message/rfc822' });
+}
+
+function parseMimeFiles(raw, mode) {
+  const parts = raw.split(/\r?\n--[^\r\n]+(?:--)?(?:\r?\n|$)/);
+  const files = [];
+  const extensionByType = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
+  parts.forEach((part, index) => {
+    const split = part.search(/\r?\n\r?\n/);
+    if (split < 0) return;
+    const headers = part.slice(0, split).replace(/\r?\n[ \t]+/g, ' ');
+    const content = part.slice(split).replace(/^\r?\n\r?\n/, '').replace(/\r?\n$/, '');
+    const type = headers.match(/^Content-Type:\s*([^;\r\n]+)/im)?.[1]?.toLowerCase() || 'application/octet-stream';
+    const disposition = headers.match(/^Content-Disposition:\s*([^;\r\n]+)/im)?.[1]?.toLowerCase() || '';
+    const encodedName = headers.match(/filename\*=UTF-8''([^;\r\n]+)/i)?.[1];
+    const plainName = headers.match(/(?:filename|name)="?([^";\r\n]+)"?/i)?.[1];
+    const isImage = type.startsWith('image/');
+    const wanted = mode === 'images' ? isImage : disposition === 'attachment' && !isImage;
+    if (!wanted) return;
+    let filename = encodedName ? decodeURIComponent(encodedName) : plainName;
+    filename = safeFilename(filename || `${isImage ? 'image' : 'attachment'}-${index + 1}.${extensionByType[type] || 'bin'}`);
+    const encoding = headers.match(/^Content-Transfer-Encoding:\s*([^\r\n]+)/im)?.[1]?.toLowerCase();
+    let bytes;
+    if (encoding === 'base64') {
+      const binary = atob(content.replace(/\s/g, ''));
+      bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    } else {
+      const decoded = encoding === 'quoted-printable'
+        ? content.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (_match, hex) => String.fromCharCode(parseInt(hex, 16)))
+        : content;
+      bytes = new TextEncoder().encode(decoded);
+    }
+    files.push(new File([bytes], filename, { type }));
+  });
+  return files;
+}
+
+function printMessageAsPdf(message) {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) throw new Error('瀏覽器阻擋了 PDF 視窗，請允許彈出視窗後再試一次');
+  let content = `<pre style="white-space:pre-wrap;font:inherit">${escapeHtml(message.text_body || message.snippet)}</pre>`;
+  let emailStyles = '';
+  if (message.html_body) {
+    const parsed = new DOMParser().parseFromString(message.html_body, 'text/html');
+    parsed.querySelectorAll('script').forEach((node) => node.remove());
+    content = parsed.body.innerHTML;
+    emailStyles = [...parsed.querySelectorAll('style')].map((node) => node.textContent).join('\n').replace(/<\/style/gi, '<\\/style');
+  }
+  printWindow.addEventListener('load', () => setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300), { once: true });
+  printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data: https:"><title>${escapeHtml(message.subject)}</title><style>@page{margin:14mm}body{font-family:Arial,'Noto Sans TC',sans-serif;color:#17231d;line-height:1.65}header{border-bottom:1px solid #ccd4cc;margin-bottom:20px;padding-bottom:14px}h1{font-size:24px;margin:0 0 10px}.meta{color:#66736b;font-size:13px}${emailStyles}</style></head><body><header><h1>${escapeHtml(message.subject)}</h1><div class="meta">${escapeHtml(message.sender_name || message.sender_email)} &lt;${escapeHtml(message.sender_email)}&gt; · ${escapeHtml(formatDate(message.received_at))}</div></header>${content}</body></html>`);
+  printWindow.document.close();
+}
+
+async function buildExportFiles(type, message) {
+  const eml = await getMessageEmlFile(message);
+  if (type === 'eml') return [eml];
+  const files = parseMimeFiles(await eml.text(), type);
+  if (!files.length) throw new Error(type === 'images' ? '這封信沒有可下載的圖片' : '這封信沒有可下載的附件');
+  return files;
+}
+
+async function saveExportFiles(files) {
+  if (files.length === 1 && window.showSaveFilePicker) {
+    try {
+      const file = files[0];
+      const handle = await window.showSaveFilePicker({ suggestedName: file.name });
+      const writable = await handle.createWritable();
+      await writable.write(file);
+      await writable.close();
+      return;
+    } catch (error) { if (error.name === 'AbortError') throw error; }
+  }
+  if (files.length > 1 && window.showDirectoryPicker) {
+    try {
+      const directory = await window.showDirectoryPicker();
+      for (const file of files) {
+        const handle = await directory.getFileHandle(file.name, { create: true });
+        const writable = await handle.createWritable();
+        await writable.write(file);
+        await writable.close();
+      }
+      return;
+    } catch (error) { if (error.name === 'AbortError') throw error; }
+  }
+  files.forEach((file, index) => setTimeout(() => {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(file);
+    link.download = file.name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1500);
+  }, index * 180));
+}
+
+function openMessageDownloadDialog(message) {
+  downloadMessageContext = message;
+  messageDownloadForm.reset();
+  document.querySelector('#message-download-subject').textContent = message.subject;
+  messageDownloadDialog.showModal();
 }
 
 async function openMessage(id) {
@@ -749,22 +852,25 @@ async function openMessage(id) {
     <div class="message-recipient"><span>收件信箱</span><b>${escapeHtml(message.account_email)}</b></div>
     <h2>${escapeHtml(message.subject)}</h2>
     <div class="message-meta"><div class="message-meta-line"><span class="sender-identity"><b>${escapeHtml(message.sender_name || message.sender_email)}</b>${message.sender_name && message.sender_name !== message.sender_email ? `<span>${escapeHtml(message.sender_email)}</span>` : ''}</span><small>${formatDate(message.received_at)}</small></div></div>
-    <div class="message-actions">
-      <button class="ghost compact-action" data-action="star" aria-label="${message.is_starred ? '取消星號' : '加上星號'}" title="${message.is_starred ? '取消星號' : '加上星號'}">${message.is_starred ? '★' : '☆'}</button>
-      <button class="ghost compact-action" data-action="read"><span>${message.is_read ? '標記未讀' : '標記已讀'}</span></button>
+    <div class="message-actions message-utility-actions">
+      <button class="ghost compact-action read-toggle ${message.is_read ? 'active' : ''}" data-action="read" aria-pressed="${Boolean(message.is_read)}"><i aria-hidden="true"></i><span>已讀</span></button>
       <div class="detail-picker category-picker"><button class="detail-picker-trigger" type="button" aria-expanded="false" aria-haspopup="menu"><span class="detail-picker-label">${escapeHtml(message.category || '選擇分類')}</span><span aria-hidden="true">⌄</span></button><div class="detail-picker-menu" role="menu" hidden><button type="button" role="menuitem" data-category="__new__">＋ 新增分類</button>${categories.map((category) => `<button type="button" role="menuitem" data-category="${escapeHtml(category)}" ${category === message.category ? 'aria-current="true"' : ''}>${escapeHtml(category)}</button>`).join('')}<button type="button" role="menuitem" data-category="未分類">未分類</button></div></div>
+      <button class="ghost compact-action" data-action="spam"><span>垃圾信</span></button>
+      <button class="ghost compact-action" data-action="download"><span>下載</span></button>
+    </div>
+    <div class="message-content-scroll"><div class="mail-body"></div><div class="inline-reply" hidden></div></div>
+    <div class="message-mobile-actions">
+      <button class="ghost compact-action" data-action="star" aria-label="${message.is_starred ? '取消星號' : '加上星號'}" title="${message.is_starred ? '取消星號' : '加上星號'}">${message.is_starred ? '★' : '☆'}</button>
       <button class="ghost compact-action" data-action="reply"><span>回覆</span></button>
       <button class="ghost compact-action" data-action="forward"><span>轉寄</span></button>
-      <button class="ghost compact-action" data-action="spam"><span>標為垃圾信</span></button>
       <button class="danger compact-action trash-action" data-action="trash" aria-label="移至垃圾桶" title="移至垃圾桶"><svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button>
-    </div>
-    <div class="message-content-scroll"><div class="mail-body"></div><div class="inline-reply" hidden></div></div>`;
+    </div>`;
   const layout = detail.closest('.mail-layout');
   layout.dataset.listScrollY = String(document.querySelector('#message-list-scroll')?.scrollTop || 0);
   layout.classList.add('mobile-detail-open');
   document.body.classList.add('message-open');
   document.querySelector('.mail-toolbar').hidden = true;
-  setComposeVisibility(true);
+  setComposeVisibility(false);
   detail.scrollTop = 0;
   detail.querySelector('[data-action="back"]').addEventListener('click', () => {
     if (activeDetailOutsideHandler) document.removeEventListener('click', activeDetailOutsideHandler);
@@ -772,6 +878,7 @@ async function openMessage(id) {
     layout.classList.remove('mobile-detail-open');
     document.body.classList.remove('message-open');
     document.querySelector('.mail-toolbar').hidden = false;
+    setComposeVisibility(true);
     detail.classList.add('empty-state');
     detail.innerHTML = '<div><b>選擇一封郵件</b><p>郵件內容會顯示在這裡。</p></div>';
     const list = document.querySelector('#message-list-scroll');
@@ -839,15 +946,33 @@ async function openMessage(id) {
     body.append(iframe);
   } else body.innerHTML = `<pre style="white-space:pre-wrap;font:inherit">${escapeHtml(message.text_body || message.snippet)}</pre>`;
   detail.querySelector('[data-action="read"]').addEventListener('click', async (event) => {
-    setBusy(event.currentTarget, true);
-    try { await api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: !message.is_read }) }); await renderRoute(); }
-    catch (error) { showNotice(error.message, true); setBusy(event.currentTarget, false); }
+    event.currentTarget.disabled = true;
+    try {
+      const read = !Boolean(message.is_read);
+      await api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read }) });
+      message.is_read = read ? 1 : 0;
+      const loaded = loadedMessages.find((item) => item.id === id); if (loaded) loaded.is_read = message.is_read;
+      const demo = demoMessages.find((item) => item.id === id); if (demo) demo.is_read = message.is_read;
+      event.currentTarget.classList.toggle('active', read);
+      event.currentTarget.setAttribute('aria-pressed', String(read));
+      event.currentTarget.disabled = false;
+      showNotice(read ? '已標記為已讀' : '已標記為未讀');
+    }
+    catch (error) { showNotice(error.message, true); event.currentTarget.disabled = false; }
   });
   detail.querySelector('[data-action="star"]').addEventListener('click', async () => { await toggleMessageStar(id); await openMessage(id); });
   detail.querySelector('[data-action="spam"]').addEventListener('click', async () => {
-    try { await api(`/api/messages/${id}/move`, { method: 'PATCH', body: JSON.stringify({ folder: 'SPAM' }) }); showNotice('已標為垃圾信'); await renderRoute(); }
+    const olderMessage = messages[messageIndex + 1] || null;
+    try {
+      await api(`/api/messages/${id}/move`, { method: 'PATCH', body: JSON.stringify({ folder: 'SPAM' }) });
+      const loaded = loadedMessages.find((item) => item.id === id); if (loaded) loaded.folder = 'SPAM';
+      const demo = demoMessages.find((item) => item.id === id); if (demo) demo.folder = 'SPAM';
+      showNotice('已標為垃圾信');
+      if (olderMessage) await openMessage(olderMessage.id); else await renderRoute();
+    }
     catch (error) { showNotice(error.message, true); }
   });
+  detail.querySelector('[data-action="download"]').addEventListener('click', () => openMessageDownloadDialog(message));
   detail.querySelector('[data-action="trash"]').addEventListener('click', async (event) => {
     if (!confirm('確定將這封郵件移至遠端信箱的垃圾桶？')) return;
     setBusy(event.currentTarget, true);
@@ -883,9 +1008,6 @@ async function openMessage(id) {
       : (messageIndex + 1) % messages.length;
     openMessage(messages[targetIndex].id);
   }, { passive: true });
-  if (!message.is_read) {
-    api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: true }) }).catch((error) => showNotice(error.message, true));
-  }
 }
 
 async function openCompose(draft = {}) {
@@ -1060,11 +1182,43 @@ document.querySelector('#message-filter-clear').addEventListener('click', () => 
 });
 document.querySelector('#message-filter-cancel').addEventListener('click', () => messageFilterDialog.close());
 document.querySelector('#message-filter-close').addEventListener('click', () => messageFilterDialog.close());
+const closeMessageDownloadDialog = () => { messageDownloadDialog.close(); downloadMessageContext = null; };
+document.querySelector('#message-download-cancel').addEventListener('click', closeMessageDownloadDialog);
+document.querySelector('#message-download-close').addEventListener('click', closeMessageDownloadDialog);
+messageDownloadDialog.addEventListener('close', () => { downloadMessageContext = null; });
+messageDownloadForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!downloadMessageContext) return;
+  const type = new FormData(messageDownloadForm).get('exportType');
+  const button = messageDownloadForm.querySelector('[type="submit"]');
+  try {
+    if (type === 'pdf') { printMessageAsPdf(downloadMessageContext); messageDownloadDialog.close(); return; }
+    setBusy(button, true, '準備中…');
+    const files = await buildExportFiles(type, downloadMessageContext);
+    await saveExportFiles(files);
+    messageDownloadDialog.close();
+    showNotice(`已準備 ${files.length} 個檔案`);
+  } catch (error) { if (error.name !== 'AbortError') showNotice(error.message, true); }
+  finally { setBusy(button, false); }
+});
+document.querySelector('#message-share').addEventListener('click', async (event) => {
+  if (!downloadMessageContext) return;
+  const type = new FormData(messageDownloadForm).get('exportType');
+  try {
+    if (type === 'pdf') { printMessageAsPdf(downloadMessageContext); messageDownloadDialog.close(); return; }
+    setBusy(event.currentTarget, true, '準備中…');
+    const files = await buildExportFiles(type, downloadMessageContext);
+    if (!navigator.share || !navigator.canShare?.({ files })) throw new Error('這個瀏覽器不支援檔案分享，請改用下載後再分享');
+    await navigator.share({ title: downloadMessageContext.subject, text: '分享信件匯出檔案', files });
+    messageDownloadDialog.close();
+  } catch (error) { if (error.name !== 'AbortError') showNotice(error.message, true); }
+  finally { setBusy(event.currentTarget, false); }
+});
 const closeHelp = () => { helpDialog.close(); setComposeVisibility(!document.body.classList.contains('settings-open')); };
 helpButton.addEventListener('click', () => { setComposeVisibility(false); helpDialog.showModal(); });
 document.querySelector('#help-close').addEventListener('click', closeHelp);
 document.querySelector('#help-done').addEventListener('click', closeHelp);
-[composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+[composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog, messageDownloadDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
 helpDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
 quickFolderDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
 filterDrawerToggle.addEventListener('click', () => setFilterDrawer(!document.body.classList.contains('filters-open')));
@@ -1076,7 +1230,12 @@ document.addEventListener('pointerdown', (event) => {
   setFilterDrawer(false);
 });
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && document.body.classList.contains('filters-open')) setFilterDrawer(false); });
-document.querySelector('#download-message').addEventListener('click', () => { if (actionMessageId) downloadMessage(actionMessageId); });
+document.querySelector('#download-message').addEventListener('click', async () => {
+  if (!actionMessageId) return;
+  hideMessageMenu();
+  try { openMessageDownloadDialog(await api(`/api/messages/${actionMessageId}`)); }
+  catch (error) { showNotice(error.message, true); }
+});
 document.addEventListener('pointerdown', (event) => { if (!messageActionMenu.hidden && !messageActionMenu.contains(event.target)) hideMessageMenu(); });
 window.addEventListener('scroll', hideMessageMenu, { passive: true });
 
