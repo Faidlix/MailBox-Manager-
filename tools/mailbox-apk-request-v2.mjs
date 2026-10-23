@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CONFIG_PATH = path.join(ROOT, 'config', 'mailbox-apk-dispatch.json');
-const STATE_DIRECTORY = path.join(ROOT, '.apk-dispatch-state', 'v2');
+const STATE_DIRECTORY = path.join(ROOT, '.apk-dispatch-state', 'v3');
 const SHA40 = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const MODES = new Set(['build-verify', 'publish-request']);
@@ -95,7 +95,8 @@ export function statePaths(stateDirectory, request) {
     workerLock: path.join(stateDirectory, 'worker-locks', `${projectId}.lock.json`),
     receipt: path.join(stateDirectory, 'receipts', `${identity.id}.json`),
     status: path.join(stateDirectory, 'status', `${identity.id}.json`),
-    reservation: path.join(stateDirectory, 'version-reservations', `${hash(versionKey)}.json`),
+    recoveryMutex: path.join(stateDirectory, 'recovery-mutexes', `${projectId}.lock.json`),
+    versionRegistry: path.join(stateDirectory, 'version-registries', `${projectId}.json`),
     recovery: path.join(stateDirectory, 'recovery'),
   };
 }
@@ -110,6 +111,17 @@ function createWorkerLock(lockPath, record) {
   const descriptor = openSync(lockPath, 'wx');
   try { writeFileSync(descriptor, `${JSON.stringify(record, null, 2)}\n`); }
   finally { closeSync(descriptor); }
+}
+
+function sameOwner(left, right) {
+  return left?.host === right?.host && left?.pid === right?.pid && left?.token === right?.token;
+}
+
+function releaseOwnedLock(lockPath, owner) {
+  const parsed = readJson(lockPath);
+  if (!parsed.ok || !sameOwner(parsed.value?.owner, owner)) return false;
+  rmSync(lockPath);
+  return true;
 }
 
 function claimWorker(paths, request, runtime) {
@@ -132,54 +144,82 @@ function claimWorker(paths, request, runtime) {
   if (processState === 'alive') return { claimed: false, reason: 'lock-owner-alive' };
   if (processState !== 'dead') return { claimed: false, reason: 'lock-owner-unknown' };
 
-  mkdirSync(paths.recovery, { recursive: true });
-  const recovered = path.join(paths.recovery, `${hash(request.project)}.${existing.owner.token}.${Date.now()}.lock.json`);
+  mkdirSync(path.dirname(paths.recoveryMutex), { recursive: true });
+  const recoveryOwner = { host: owner.host, pid: owner.pid, token: runtime.randomUUID() };
+  const recoveryRecord = { schemaVersion: 1, project: request.project, owner: recoveryOwner, startedAt: new Date().toISOString() };
   try {
-    renameSync(paths.workerLock, recovered);
+    createWorkerLock(paths.recoveryMutex, recoveryRecord);
   } catch (error) {
-    if (error?.code === 'ENOENT' || error?.code === 'EEXIST') return { claimed: false, reason: 'lock-recovery-race' };
+    if (error?.code === 'EEXIST') return { claimed: false, reason: 'lock-recovery-busy' };
     throw error;
   }
+
   try {
-    createWorkerLock(paths.workerLock, claimRecord);
-  } catch (error) {
-    if (error?.code === 'EEXIST') return { claimed: false, reason: 'lock-claim-race-lost', recovered };
-    throw error;
+    runtime.afterRecoveryMutex?.(paths, existing);
+    const current = readJson(paths.workerLock);
+    if (!current.ok || !lockRecordIsKnown(current.value)) return { claimed: false, reason: 'lock-unknown-after-recovery-mutex' };
+    if (current.value.project !== existing.project || !sameOwner(current.value.owner, existing.owner)) {
+      return { claimed: false, reason: 'lock-changed-during-recovery' };
+    }
+    if (current.value.owner.host !== owner.host) return { claimed: false, reason: 'lock-owned-by-other-host' };
+    const confirmedState = runtime.inspectProcess(current.value.owner.pid);
+    if (confirmedState === 'alive') return { claimed: false, reason: 'lock-owner-alive-after-recovery-mutex' };
+    if (confirmedState !== 'dead') return { claimed: false, reason: 'lock-owner-unknown-after-recovery-mutex' };
+
+    mkdirSync(paths.recovery, { recursive: true });
+    const recovered = path.join(paths.recovery, `${hash(request.project)}.${existing.owner.token}.${Date.now()}.lock.json`);
+    try {
+      renameSync(paths.workerLock, recovered);
+    } catch (error) {
+      if (error?.code === 'ENOENT' || error?.code === 'EEXIST') return { claimed: false, reason: 'lock-recovery-race' };
+      throw error;
+    }
+    try {
+      createWorkerLock(paths.workerLock, claimRecord);
+    } catch (error) {
+      if (error?.code === 'EEXIST') return { claimed: false, reason: 'lock-claim-race-lost', recovered };
+      throw error;
+    }
+    return { claimed: true, owner, recovered };
+  } finally {
+    releaseOwnedLock(paths.recoveryMutex, recoveryOwner);
   }
-  return { claimed: true, owner, recovered };
 }
 
 function releaseWorker(paths, owner) {
-  const parsed = readJson(paths.workerLock);
-  if (!parsed.ok || parsed.value?.owner?.token !== owner.token) return false;
-  rmSync(paths.workerLock);
-  return true;
+  return releaseOwnedLock(paths.workerLock, owner);
 }
 
 function reserveVersion(paths, request) {
-  const reservation = {
-    schemaVersion: 1,
-    versionKey: paths.versionKey,
-    project: request.project,
+  const entry = {
     versionName: request.android.versionName,
     versionCode: request.android.versionCode,
     sourceSha: request.site.sourceSha,
     requestId: paths.identity.id,
     reservedAt: new Date().toISOString(),
   };
-  mkdirSync(path.dirname(paths.reservation), { recursive: true });
-  try {
-    const descriptor = openSync(paths.reservation, 'wx');
-    try { writeFileSync(descriptor, `${JSON.stringify(reservation, null, 2)}\n`); }
-    finally { closeSync(descriptor); }
-    return { reserved: true, created: true, reservation };
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
+  let registry = { schemaVersion: 1, project: request.project, entries: [] };
+  if (existsSync(paths.versionRegistry)) {
+    const parsed = readJson(paths.versionRegistry);
+    const validEntry = (item) => typeof item?.versionName === 'string' && item.versionName.length > 0 &&
+      Number.isInteger(item?.versionCode) && item.versionCode > 0 && SHA40.test(item?.sourceSha ?? '') &&
+      typeof item?.requestId === 'string' && item.requestId.length > 0 && typeof item?.reservedAt === 'string';
+    const valid = parsed.ok && parsed.value?.schemaVersion === 1 && parsed.value?.project === request.project &&
+      Array.isArray(parsed.value?.entries) && parsed.value.entries.every(validEntry);
+    if (!valid) return { reserved: false, reason: 'version-registry-unknown' };
+    registry = parsed.value;
   }
-  const parsed = readJson(paths.reservation);
-  if (!parsed.ok || parsed.value?.versionKey !== paths.versionKey || !SHA40.test(parsed.value?.sourceSha ?? '')) return { reserved: false, reason: 'version-reservation-unknown' };
-  if (parsed.value.sourceSha !== request.site.sourceSha) return { reserved: false, reason: 'version-source-conflict', reservation: parsed.value };
-  return { reserved: true, created: false, reservation: parsed.value };
+
+  const byName = registry.entries.find((item) => item.versionName === entry.versionName);
+  const byCode = registry.entries.find((item) => item.versionCode === entry.versionCode);
+  const exact = byName && byCode && byName === byCode && byName.requestId === entry.requestId && byName.sourceSha === entry.sourceSha;
+  if (exact) return { reserved: true, created: false, reservation: byName };
+  if (byName) return { reserved: false, reason: 'version-name-conflict', reservation: byName };
+  if (byCode) return { reserved: false, reason: 'version-code-conflict', reservation: byCode };
+
+  registry.entries.push(entry);
+  writeJsonAtomic(paths.versionRegistry, registry);
+  return { reserved: true, created: true, reservation: entry };
 }
 
 export function processDispatchRequest(request, options = {}) {
@@ -191,6 +231,7 @@ export function processDispatchRequest(request, options = {}) {
     pid: options.runtime?.pid ?? process.pid,
     randomUUID: options.runtime?.randomUUID ?? randomUUID,
     inspectProcess: options.runtime?.inspectProcess ?? inspectLocalProcess,
+    afterRecoveryMutex: options.runtime?.afterRecoveryMutex,
   };
   const errors = validateRequest(request, config);
   if (errors.length > 0) return { outcome: 'rejected', errors };
@@ -215,7 +256,7 @@ export function processDispatchRequest(request, options = {}) {
         : { outcome: 'conflict', requestKey: paths.identity.raw, receiptPath: paths.receipt };
     }
     const version = reserveVersion(paths, request);
-    if (!version.reserved) return { outcome: 'version-conflict', reason: version.reason, requestKey: paths.identity.raw, reservationPath: paths.reservation, reservedSourceSha: version.reservation?.sourceSha };
+    if (!version.reserved) return { outcome: 'version-conflict', reason: version.reason, requestKey: paths.identity.raw, registryPath: paths.versionRegistry, reservedSourceSha: version.reservation?.sourceSha };
 
     const blockedReasons = [];
     if (request.mode === 'publish-request') {
@@ -227,7 +268,7 @@ export function processDispatchRequest(request, options = {}) {
     const outcome = blockedReasons.length > 0 ? 'blocked' : 'accepted';
     const now = new Date().toISOString();
     const receipt = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       outcome,
       requestKey: paths.identity.raw,
       requestId: paths.identity.id,
@@ -239,7 +280,7 @@ export function processDispatchRequest(request, options = {}) {
       sourceSha: request.site.sourceSha,
       versionName: request.android.versionName,
       versionCode: request.android.versionCode,
-      versionReservationPath: paths.reservation,
+      versionRegistryPath: paths.versionRegistry,
       approvalEvidenceRef: request.approval.evidenceRef,
       approvalTrusted: false,
       destination: request.destination,

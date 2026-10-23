@@ -3,10 +3,12 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { hostname } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { processDispatchRequest, statePaths } from '../tools/mailbox-apk-request-v2.mjs';
 
 const config = {
@@ -102,7 +104,7 @@ function writeV2WorkerLock(paths, overrides = {}) {
   }));
 }
 
-function v2Options(stateDirectory, inspectProcess) {
+function v2Options(stateDirectory, inspectProcess, runtimeOverrides = {}) {
   return {
     config,
     stateDirectory,
@@ -111,6 +113,7 @@ function v2Options(stateDirectory, inspectProcess) {
       pid: 1234,
       randomUUID: () => 'new-owner-token',
       inspectProcess,
+      ...runtimeOverrides,
     },
   };
 }
@@ -169,6 +172,100 @@ test('version reservation rejects another SHA reusing version name and code', ()
   const changedSha = request({ site: { ...original.site, sourceSha: 'c'.repeat(40) } });
   const result = processDispatchRequest(changedSha, v2Options(stateDirectory, () => 'alive'));
   assert.equal(result.outcome, 'version-conflict');
-  assert.equal(result.reason, 'version-source-conflict');
+  assert.equal(result.reason, 'version-name-conflict');
   assert.equal(result.reservedSourceSha, 'b'.repeat(40));
 }));
+
+test('recovery mutex prevents a second recoverer from entering', () => withState((stateDirectory) => {
+  const payload = request();
+  const paths = statePaths(stateDirectory, payload);
+  writeV2WorkerLock(paths);
+  mkdirSync(path.dirname(paths.recoveryMutex), { recursive: true });
+  writeFileSync(paths.recoveryMutex, JSON.stringify({
+    schemaVersion: 1,
+    project: payload.project,
+    owner: { host: 'test-host', pid: 999, token: 'other-recoverer-token' },
+    startedAt: new Date().toISOString(),
+  }));
+  const result = processDispatchRequest(payload, v2Options(stateDirectory, () => 'dead'));
+  assert.equal(result.outcome, 'busy');
+  assert.equal(result.reason, 'lock-recovery-busy');
+  assert.equal(JSON.parse(readFileSync(paths.workerLock, 'utf8')).owner.token, 'existing-owner-token');
+}));
+
+test('recoverer re-read never moves a newly installed active owner lock', () => withState((stateDirectory) => {
+  const payload = request();
+  const paths = statePaths(stateDirectory, payload);
+  writeV2WorkerLock(paths);
+  const result = processDispatchRequest(payload, v2Options(stateDirectory, () => 'dead', {
+    afterRecoveryMutex: () => writeFileSync(paths.workerLock, JSON.stringify({
+      schemaVersion: 1,
+      project: payload.project,
+      requestKey: 'new-active-request',
+      owner: { host: 'test-host', pid: 888, token: 'new-active-owner-token' },
+      claimedAt: new Date().toISOString(),
+    })),
+  }));
+  assert.equal(result.outcome, 'busy');
+  assert.equal(result.reason, 'lock-changed-during-recovery');
+  assert.equal(JSON.parse(readFileSync(paths.workerLock, 'utf8')).owner.token, 'new-active-owner-token');
+  assert.equal(existsSync(paths.recoveryMutex), false);
+}));
+
+test('version registry rejects code reuse with another version name', () => withState((stateDirectory) => {
+  const original = request();
+  assert.equal(processDispatchRequest(original, v2Options(stateDirectory, () => 'alive')).outcome, 'accepted');
+  const changed = request({
+    site: { ...original.site, sourceSha: 'c'.repeat(40), version: 27 },
+    android: { ...original.android, versionName: '0.1.27' },
+  });
+  const result = processDispatchRequest(changed, v2Options(stateDirectory, () => 'alive'));
+  assert.equal(result.outcome, 'version-conflict');
+  assert.equal(result.reason, 'version-code-conflict');
+}));
+
+test('version registry rejects name reuse with another version code', () => withState((stateDirectory) => {
+  const original = request();
+  assert.equal(processDispatchRequest(original, v2Options(stateDirectory, () => 'alive')).outcome, 'accepted');
+  const changed = request({
+    site: { ...original.site, sourceSha: 'c'.repeat(40), version: 27 },
+    android: { ...original.android, versionCode: 27 },
+  });
+  const result = processDispatchRequest(changed, v2Options(stateDirectory, () => 'alive'));
+  assert.equal(result.outcome, 'version-conflict');
+  assert.equal(result.reason, 'version-name-conflict');
+}));
+
+test('version registry atomically appends a wholly new name and code', () => withState((stateDirectory) => {
+  const original = request();
+  const originalResult = processDispatchRequest(original, v2Options(stateDirectory, () => 'alive'));
+  assert.equal(originalResult.outcome, 'accepted');
+  const next = request({
+    site: { ...original.site, sourceSha: 'c'.repeat(40), version: 27 },
+    android: { ...original.android, versionName: '0.1.27', versionCode: 27 },
+  });
+  const nextResult = processDispatchRequest(next, v2Options(stateDirectory, () => 'alive'));
+  assert.equal(nextResult.outcome, 'accepted');
+  const registry = JSON.parse(readFileSync(statePaths(stateDirectory, next).versionRegistry, 'utf8'));
+  assert.deepEqual(registry.entries.map((item) => [item.versionName, item.versionCode]), [['0.1.26', 26], ['0.1.27', 27]]);
+}));
+
+test('malformed version registry fails closed', () => withState((stateDirectory) => {
+  const payload = request();
+  const paths = statePaths(stateDirectory, payload);
+  mkdirSync(path.dirname(paths.versionRegistry), { recursive: true });
+  writeFileSync(paths.versionRegistry, JSON.stringify({ schemaVersion: 1, project: payload.project, entries: [{}] }));
+  const result = processDispatchRequest(payload, v2Options(stateDirectory, () => 'alive'));
+  assert.equal(result.outcome, 'version-conflict');
+  assert.equal(result.reason, 'version-registry-unknown');
+}));
+
+test('legacy v1 cannot be imported as an unsafe module API', () => {
+  const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', "import('./tools/mailbox-apk-request.mjs')"], {
+    cwd: repository,
+    encoding: 'utf8',
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Legacy receiver disabled/);
+});

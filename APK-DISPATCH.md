@@ -15,18 +15,24 @@ Run the Site 26 request once:
 npm run dispatch:dry-run
 ```
 
+The npm command uses `tools/mailbox-apk-request-v2.mjs`. The original v1 module
+throws before exposing its former API and is retained only as disabled history.
+
 The request key is `project + source SHA + version name + version code`. An
 identical replay returns `duplicate`; a changed payload using the same key
 returns `conflict`. One project-wide worker lock blocks every other SHA/version
 for that project. Lock age never permits recovery: recovery is allowed only when
 the owner is on this host and its PID is explicitly reported missing (`ESRCH`).
-Unknown, inaccessible, malformed, or remote ownership fails closed. Ownership
-tokens prevent one claimant from releasing another claimant's lock.
+Unknown, inaccessible, malformed, or remote ownership fails closed. Recovery
+uses a separate exclusive mutex, then re-reads and re-validates the original
+owner before moving the lock. Ownership tokens prevent one claimant from
+releasing another claimant's lock.
 
-An atomic version reservation rejects a different source SHA trying to reuse the
-same project/version name/version code. Receipts, status, version reservations,
-and recovered locks are written under `.apk-dispatch-state/v2/` and ignored by
-Git. The production CLI cannot override the repository config or state path;
+An atomic project version registry rejects any different request or source SHA
+trying to reuse either an existing version name or an existing version code.
+Receipts, status, registry entries, and recovered locks are written under
+`.apk-dispatch-state/v3/` and ignored by Git. The production CLI cannot override
+the repository config or state path;
 test-only injection is available through the imported module API.
 
 `config/mailbox-apk-dispatch.json` fixes the accepted project, Sites project,
