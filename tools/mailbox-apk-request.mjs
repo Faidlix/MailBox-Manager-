@@ -2,6 +2,8 @@
 // Usage: node tools/mailbox-apk-request.mjs --request <json> --dry-run [--state-dir <dir>].
 // Configuration: config/mailbox-apk-dispatch.json; this tool never builds or publishes.
 
+throw new Error('Legacy receiver disabled; use tools/mailbox-apk-request-v2.mjs');
+
 import { createHash } from 'node:crypto';
 import {
   closeSync,

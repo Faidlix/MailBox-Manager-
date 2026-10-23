@@ -1,9 +1,13 @@
 # MailBox APK Request Contract
 
-This repository contains a disabled-by-default, one-shot request receiver. It
+This repository contains a disabled-by-default, local one-shot request receiver. It
 validates a fixed JSON contract, claims one local worker lock, and persists a
 receipt/status pair. It does not execute shell text, build Android, publish an
 APK, run in the background, or treat request text as authorization.
+
+This is not a continuous cloud trigger and does not guarantee automatic reports
+to another conversation. A human or separately approved formal trigger must run
+the CLI and deliver the receipt to the configured report thread.
 
 Run the Site 26 request once:
 
@@ -13,10 +17,17 @@ npm run dispatch:dry-run
 
 The request key is `project + source SHA + version name + version code`. An
 identical replay returns `duplicate`; a changed payload using the same key
-returns `conflict`; an active original claim returns `busy`. Stale locks are
-moved into `.apk-dispatch-state/recovery/` before processing resumes. Receipts
-and current status are written atomically under `.apk-dispatch-state/` and are
-ignored by Git.
+returns `conflict`. One project-wide worker lock blocks every other SHA/version
+for that project. Lock age never permits recovery: recovery is allowed only when
+the owner is on this host and its PID is explicitly reported missing (`ESRCH`).
+Unknown, inaccessible, malformed, or remote ownership fails closed. Ownership
+tokens prevent one claimant from releasing another claimant's lock.
+
+An atomic version reservation rejects a different source SHA trying to reuse the
+same project/version name/version code. Receipts, status, version reservations,
+and recovered locks are written under `.apk-dispatch-state/v2/` and ignored by
+Git. The production CLI cannot override the repository config or state path;
+test-only injection is available through the imported module API.
 
 `config/mailbox-apk-dispatch.json` fixes the accepted project, Sites project,
 source thread, report thread, and signing certificate. The destination allowlist
@@ -39,6 +50,8 @@ request payload:
 5. Accepted risks and explicit publication approval, including rollback and
    who can revoke the trigger.
 
-Codex's formal heartbeat or project automation can be used for a future fixed
-trigger after explicit schedule and executor approval. It should invoke this
-one-shot contract, not install a custom daemon. No automation is created here.
+Codex's formal heartbeat or project automation may provide a future trigger only
+after explicit schedule, executor, routing, and credential approval. Its actual
+ability to reach this local repository and report back must be proven in a
+separate end-to-end test. It should invoke this one-shot contract, not install a
+custom daemon. No trigger, automation, or report guarantee is created here.

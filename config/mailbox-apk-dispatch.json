@@ -19,6 +19,5 @@
   "signingCertificateSha256": [
     "5f74b5df9e4c21fdbb590e39a807111578aa22cb0286558d0d6d1721174d0a12"
   ],
-  "publishDestinations": [],
-  "lockStaleAfterMs": 900000
+  "publishDestinations": []
 }
