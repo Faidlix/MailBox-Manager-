@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "project": "MailBox-Manager",
+  "site": {
+    "projectId": "appgprj_6ac6418ee55c8191a882a702fd846ad2",
+    "sourceSha": "37c369a2b10f309c3bfcf65d16613393b2bea772",
+    "version": 26
+  },
+  "android": {
+    "versionName": "0.1.26",
+    "versionCode": 26,
+    "signingCertificateSha256": "5f74b5df9e4c21fdbb590e39a807111578aa22cb0286558d0d6d1721174d0a12"
+  },
+  "mode": "build-verify",
+  "approval": {
+    "evidenceRef": "codex-thread:01a10b9e-655a-7135-9372-81e43a93c00f:site26-apk-request"
+  },
+  "source": {
+    "channel": "codex-thread",
+    "threadId": "01a10b9e-655a-7135-9372-81e43a93c00f",
+    "hostId": "durable"
+  },
+  "report": {
+    "threadId": "01a10b9e-655a-7135-9372-81e43a93c00f",
+    "hostId": "durable"
+  },
+  "destination": null
+}

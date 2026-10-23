@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://faidlix.local/schemas/mailbox-apk-request.schema.json",
+  "title": "MailBox APK dispatch request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "project", "site", "android", "mode", "approval", "source", "report", "destination"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "site": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "sourceSha", "version"],
+      "properties": {
+        "projectId": { "type": "string", "minLength": 1 },
+        "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "android": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["versionName", "versionCode", "signingCertificateSha256"],
+      "properties": {
+        "versionName": { "type": "string", "minLength": 1 },
+        "versionCode": { "type": "integer", "minimum": 1 },
+        "signingCertificateSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "mode": { "enum": ["build-verify", "publish-request"] },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceRef"],
+      "properties": { "evidenceRef": { "type": "string", "minLength": 1 } }
+    },
+    "source": { "$ref": "#/$defs/sourceEndpoint" },
+    "report": { "$ref": "#/$defs/reportEndpoint" },
+    "destination": { "type": ["string", "null"] }
+  },
+  "$defs": {
+    "sourceEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "threadId", "hostId"],
+      "properties": {
+        "channel": { "type": "string", "minLength": 1 },
+        "threadId": { "type": "string", "minLength": 1 },
+        "hostId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "reportEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "hostId"],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 },
+        "hostId": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
