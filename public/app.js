@@ -1,3 +1,5 @@
+import { createMessagePdf } from './message-export.js';
+
 const view = document.querySelector('#view');
 const title = document.querySelector('#page-title');
 const noticeRoot = document.querySelector('#notice');
@@ -39,6 +41,7 @@ let activeDetailOutsideHandler = null;
 let activeSelectionOutsideHandler = null;
 let activeMessageRequest = 0;
 let downloadMessageContext = null;
+let exportSession = null;
 const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
 let loadedMessages = [];
 const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
@@ -705,12 +708,14 @@ function bindMessageGestures(row, id) {
   row.addEventListener('contextmenu', (event) => { event.preventDefault(); clearTimeout(pressTimer); showMessageMenu(id, event.clientX, event.clientY); });
 }
 
-function demoEml(message) {
+async function demoEml(message) {
   const relatedBoundary = `mailbox-related-${message.id}`;
   const alternativeBoundary = `mailbox-alternative-${message.id}`;
-  const html = (message.html_body || demoHtml(message)).replace(/data:image\/svg\+xml;base64,[^"']+/g, 'cid:mailbox-demo-mark');
+  const sourceHtml = message.html_body || demoHtml(message);
+  const hasDemoMark = sourceHtml.includes(toBase64(DEMO_MARK_SVG));
+  const html = sourceHtml.replace(`data:image/svg+xml;base64,${toBase64(DEMO_MARK_SVG)}`, 'cid:mailbox-demo-mark');
   const headers = [
-    `From: ${message.sender_name ? `"${message.sender_name.replaceAll('"', '')}" ` : ''}<${message.sender_email}>`,
+    `From: ${message.sender_name ? `=?UTF-8?B?${toBase64(message.sender_name)}?= ` : ''}<${message.sender_email}>`,
     `To: ${(message.recipients || []).join(', ')}`,
     `Date: ${new Date(message.received_at).toUTCString()}`,
     `Subject: =?UTF-8?B?${toBase64(message.subject || '(無主旨)')}?=`,
@@ -723,8 +728,16 @@ function demoEml(message) {
     `--${alternativeBoundary}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrapBase64(toBase64(message.text_body || message.snippet || '')),
     `--${alternativeBoundary}`, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrapBase64(toBase64(html)),
     `--${alternativeBoundary}--`,
-    `--${relatedBoundary}`, 'Content-Type: image/svg+xml; name="mailbox-mark.svg"', 'Content-Transfer-Encoding: base64', 'Content-ID: <mailbox-demo-mark>', 'Content-Disposition: inline; filename="mailbox-mark.svg"', '', wrapBase64(toBase64(DEMO_MARK_SVG)),
   ];
+  if (hasDemoMark) {
+    const logo = new Image();
+    logo.src = `data:image/svg+xml;base64,${toBase64(DEMO_MARK_SVG)}`;
+    await logo.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = 96; canvas.height = 96;
+    canvas.getContext('2d').drawImage(logo, 0, 0);
+    parts.push(`--${relatedBoundary}`, 'Content-Type: image/png; name="mailbox-mark.png"', 'Content-Transfer-Encoding: base64', 'Content-ID: <mailbox-demo-mark>', 'Content-Disposition: inline; filename="mailbox-mark.png"', '', wrapBase64(canvas.toDataURL('image/png').split(',')[1]));
+  }
   if (message.has_attachments) parts.push(`--${relatedBoundary}`, 'Content-Type: text/plain; name="demo-attachment.txt"', 'Content-Transfer-Encoding: base64', 'Content-Disposition: attachment; filename="demo-attachment.txt"', '', wrapBase64(toBase64('MailBox Manager 示範附件\n')));
   parts.push(`--${relatedBoundary}--`, '');
   return `${headers.join('\r\n')}\r\n\r\n${parts.join('\r\n')}`;
@@ -750,7 +763,7 @@ const safeFilename = (value = 'message') => String(value).replace(/[\\/:*?"<>|\r
 
 async function getMessageEmlFile(message) {
   let blob;
-  if (demoMode) blob = new Blob([demoEml(message)], { type: 'message/rfc822;charset=utf-8' });
+  if (demoMode) blob = new Blob([await demoEml(message)], { type: 'message/rfc822;charset=utf-8' });
   else {
     const response = await fetch(`/api/messages/${message.id}/download`);
     if (!response.ok) throw new Error('下載信件失敗');
@@ -768,12 +781,12 @@ function parseMimeFiles(raw, mode) {
     if (split < 0) return;
     const headers = part.slice(0, split).replace(/\r?\n[ \t]+/g, ' ');
     const content = part.slice(split).replace(/^\r?\n\r?\n/, '').replace(/\r?\n$/, '');
-    const type = headers.match(/^Content-Type:\s*([^;\r\n]+)/im)?.[1]?.toLowerCase() || 'application/octet-stream';
-    const disposition = headers.match(/^Content-Disposition:\s*([^;\r\n]+)/im)?.[1]?.toLowerCase() || '';
+    const type = headers.match(/^Content-Type:\s*([^;\r\n]+)/im)?.[1]?.trim().toLowerCase() || 'application/octet-stream';
+    const disposition = headers.match(/^Content-Disposition:\s*([^;\r\n]+)/im)?.[1]?.trim().toLowerCase() || '';
     const encodedName = headers.match(/filename\*=UTF-8''([^;\r\n]+)/i)?.[1];
     const plainName = headers.match(/(?:filename|name)="?([^";\r\n]+)"?/i)?.[1];
     const isImage = type.startsWith('image/');
-    const wanted = mode === 'images' ? isImage : disposition === 'attachment' && !isImage;
+    const wanted = mode === 'images' ? isImage : disposition === 'attachment';
     if (!wanted) return;
     let filename = encodedName ? decodeURIComponent(encodedName) : plainName;
     filename = safeFilename(filename || `${isImage ? 'image' : 'attachment'}-${index + 1}.${extensionByType[type] || 'bin'}`);
@@ -788,31 +801,36 @@ function parseMimeFiles(raw, mode) {
         : content;
       bytes = new TextEncoder().encode(decoded);
     }
-    files.push(new File([bytes], filename, { type }));
+    const file = new File([bytes], filename, { type });
+    file.contentId = headers.match(/^Content-ID:\s*<([^>]+)>/im)?.[1] || '';
+    files.push(file);
   });
   return files;
 }
 
-function printMessageAsPdf(message) {
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) throw new Error('瀏覽器阻擋了 PDF 視窗，請允許彈出視窗後再試一次');
-  let content = `<pre style="white-space:pre-wrap;font:inherit">${escapeHtml(message.text_body || message.snippet)}</pre>`;
-  let emailStyles = '';
-  if (message.html_body) {
-    const parsed = new DOMParser().parseFromString(message.html_body, 'text/html');
-    parsed.querySelectorAll('script').forEach((node) => node.remove());
-    content = parsed.body.innerHTML;
-    emailStyles = [...parsed.querySelectorAll('style')].map((node) => node.textContent).join('\n').replace(/<\/style/gi, '<\\/style');
-  }
-  printWindow.addEventListener('load', () => setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300), { once: true });
-  printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data: https:"><title>${escapeHtml(message.subject)}</title><style>@page{margin:14mm}body{font-family:Arial,'Noto Sans TC',sans-serif;color:#17231d;line-height:1.65}header{border-bottom:1px solid #ccd4cc;margin-bottom:20px;padding-bottom:14px}h1{font-size:24px;margin:0 0 10px}.meta{color:#66736b;font-size:13px}${emailStyles}</style></head><body><header><h1>${escapeHtml(message.subject)}</h1><div class="meta">${escapeHtml(message.sender_name || message.sender_email)} &lt;${escapeHtml(message.sender_email)}&gt; · ${escapeHtml(formatDate(message.received_at))}</div></header>${content}</body></html>`);
-  printWindow.document.close();
-}
-
 async function buildExportFiles(type, message) {
+  if (type === 'pdf') {
+    const eml = await getMessageEmlFile(message);
+    const images = parseMimeFiles(await eml.text(), 'images');
+    return [await createMessagePdf(message, images, `${safeFilename(message.subject)}.pdf`)];
+  }
   const eml = await getMessageEmlFile(message);
   if (type === 'eml') return [eml];
   const files = parseMimeFiles(await eml.text(), type);
+  if (type === 'images' && message.html_body) {
+    const html = new DOMParser().parseFromString(message.html_body, 'text/html');
+    const sources = new Set([...html.images].map((image) => image.getAttribute('src')).filter((src) => /^(data:image\/|https?:\/\/)/i.test(src || '')));
+    for (const src of sources) {
+      const response = await fetch(src, { credentials: 'omit', signal: AbortSignal.timeout(15000) });
+      if (!response.ok) throw new Error('圖片下載失敗，請稍後再試');
+      const blob = await response.blob();
+      if (!blob.type.startsWith('image/')) throw new Error('信件圖片回傳的格式無效');
+      const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg' }[blob.type] || 'img';
+      // The demo logo already exists in the EML as a compatible PNG.
+      if (src === `data:image/svg+xml;base64,${toBase64(DEMO_MARK_SVG)}` && files.some((file) => file.contentId === 'mailbox-demo-mark')) continue;
+      files.push(new File([blob], `image-${files.length + 1}.${ext}`, { type: blob.type }));
+    }
+  }
   if (!files.length) throw new Error(type === 'images' ? '這封信沒有可下載的圖片' : '這封信沒有可下載的附件');
   return files;
 }
@@ -851,11 +869,52 @@ async function saveExportFiles(files) {
   }, index * 180));
 }
 
-function openMessageDownloadDialog(message) {
+async function prepareExportSelection(session) {
+  const type = new FormData(messageDownloadForm).get('exportType');
+  const button = document.querySelector('#message-share');
+  const download = messageDownloadForm.querySelector('[type="submit"]');
+  session.readyType = null;
+  button.disabled = true; download.disabled = true;
+  button.textContent = '準備中…';
+  try {
+    if (!session.files.has(type)) session.files.set(type, buildExportFiles(type, session.message));
+    const files = await session.files.get(type);
+    if (exportSession !== session || new FormData(messageDownloadForm).get('exportType') !== type) return;
+    session.readyType = type; session.readyFiles = files;
+    button.disabled = false; download.disabled = false;
+  } catch (error) {
+    session.files.delete(type);
+    if (exportSession === session && new FormData(messageDownloadForm).get('exportType') === type) {
+      button.disabled = false; download.disabled = false;
+      showNotice(`準備檔案失敗：${error.message}。可再按一次重試。`, true);
+    }
+  } finally {
+    if (exportSession === session && new FormData(messageDownloadForm).get('exportType') === type) button.textContent = '分享';
+  }
+}
+
+async function openMessageDownloadDialog(message) {
   downloadMessageContext = message;
+  const session = { message, files: new Map(), readyType: null, readyFiles: [] };
+  exportSession = session;
   messageDownloadForm.reset();
+  setBusy(document.querySelector('#message-share'), false);
+  setBusy(messageDownloadForm.querySelector('[type="submit"]'), false);
   document.querySelector('#message-download-subject').textContent = message.subject;
+  for (const type of ['attachments', 'images']) messageDownloadForm.querySelector(`[value="${type}"]`).closest('label').hidden = true;
   messageDownloadDialog.showModal();
+  const preparing = prepareExportSelection(session);
+  try {
+    const eml = await session.files.get('eml');
+    if (exportSession !== session) return;
+    const raw = await eml[0].text();
+    for (const type of ['attachments', 'images']) {
+      const files = parseMimeFiles(raw, type);
+      const htmlImages = type === 'images' && new DOMParser().parseFromString(message.html_body || '', 'text/html').querySelector('img[src]');
+      messageDownloadForm.querySelector(`[value="${type}"]`).closest('label').hidden = !files.length && !htmlImages;
+    }
+  } catch { /* The preparation step reports download errors. */ }
+  await preparing;
 }
 
 async function openMessage(id) {
@@ -866,6 +925,18 @@ async function openMessage(id) {
   }
   const message = await api(`/api/messages/${id}`);
   if (requestToken !== activeMessageRequest) return;
+  if (!message.is_read) {
+    try {
+      await api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: true }) });
+      message.is_read = 1;
+      for (const source of [messages, loadedMessages, demoMessages]) {
+        const local = source.find((item) => item.id === id);
+        if (local) local.is_read = 1;
+      }
+      document.querySelector(`.message-row[data-id="${id}"]`)?.classList.remove('unread');
+    } catch (error) { showNotice(`無法標記已讀：${error.message}`, true); }
+    if (requestToken !== activeMessageRequest) return;
+  }
   document.querySelectorAll('.message-row').forEach((row) => row.classList.toggle('selected', Number(row.dataset.id) === id));
   const detail = document.querySelector('#message-detail');
   const categories = [...new Set([...loadedMessages.map((item) => item.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
@@ -1213,19 +1284,20 @@ document.querySelector('#message-filter-clear').addEventListener('click', () => 
 });
 document.querySelector('#message-filter-cancel').addEventListener('click', () => messageFilterDialog.close());
 document.querySelector('#message-filter-close').addEventListener('click', () => messageFilterDialog.close());
-const closeMessageDownloadDialog = () => { messageDownloadDialog.close(); downloadMessageContext = null; };
+const closeMessageDownloadDialog = () => { messageDownloadDialog.close(); downloadMessageContext = null; exportSession = null; };
 document.querySelector('#message-download-cancel').addEventListener('click', closeMessageDownloadDialog);
 document.querySelector('#message-download-close').addEventListener('click', closeMessageDownloadDialog);
-messageDownloadDialog.addEventListener('close', () => { downloadMessageContext = null; });
+messageDownloadDialog.addEventListener('close', () => { downloadMessageContext = null; exportSession = null; });
+messageDownloadForm.addEventListener('change', () => { if (exportSession) prepareExportSelection(exportSession); });
 messageDownloadForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (!downloadMessageContext) return;
-  const type = new FormData(messageDownloadForm).get('exportType');
+  const session = exportSession;
+  if (!session) return;
+  if (!session.readyType) { await prepareExportSelection(session); return; }
   const button = messageDownloadForm.querySelector('[type="submit"]');
   try {
-    if (type === 'pdf') { printMessageAsPdf(downloadMessageContext); messageDownloadDialog.close(); return; }
     setBusy(button, true, '準備中…');
-    const files = await buildExportFiles(type, downloadMessageContext);
+    const files = session.readyFiles;
     await saveExportFiles(files);
     messageDownloadDialog.close();
     showNotice(`已準備 ${files.length} 個檔案`);
@@ -1233,17 +1305,20 @@ messageDownloadForm.addEventListener('submit', async (event) => {
   finally { setBusy(button, false); }
 });
 document.querySelector('#message-share').addEventListener('click', async (event) => {
-  if (!downloadMessageContext) return;
-  const type = new FormData(messageDownloadForm).get('exportType');
+  const session = exportSession;
+  if (!session) return;
+  if (!session.readyType) { await prepareExportSelection(session); return; }
+  const button = event.currentTarget;
   try {
-    if (type === 'pdf') { printMessageAsPdf(downloadMessageContext); messageDownloadDialog.close(); return; }
-    setBusy(event.currentTarget, true, '準備中…');
-    const files = await buildExportFiles(type, downloadMessageContext);
+    const files = session.readyFiles;
     if (!navigator.share || !navigator.canShare?.({ files })) throw new Error('這個瀏覽器不支援檔案分享，請改用下載後再分享');
-    await navigator.share({ title: downloadMessageContext.subject, text: '分享信件匯出檔案', files });
+    setBusy(button, true, '分享中…');
+    await navigator.share({ title: session.message.subject, files });
     messageDownloadDialog.close();
-  } catch (error) { if (error.name !== 'AbortError') showNotice(error.message, true); }
-  finally { setBusy(event.currentTarget, false); }
+  } catch (error) {
+    if (error.name !== 'AbortError') showNotice(error.name === 'NotAllowedError' || /permission denied/i.test(error.message) ? '瀏覽器未允許分享。請使用外部 Chrome 開啟，或先下載檔案後分享。' : error.message, true);
+  }
+  finally { setBusy(button, false); }
 });
 const closeHelp = () => { helpDialog.close(); setComposeVisibility(!document.body.classList.contains('settings-open')); };
 helpButton.addEventListener('click', () => { setComposeVisibility(false); helpDialog.showModal(); });

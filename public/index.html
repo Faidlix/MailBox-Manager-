@@ -99,7 +99,7 @@
       <p id="message-download-subject" class="download-subject"></p>
       <fieldset class="download-options">
         <label><input type="radio" name="exportType" value="eml" checked><span><b>完整信件</b><small>EML 格式，保留文字、排版、圖片與附件</small></span></label>
-        <label><input type="radio" name="exportType" value="pdf"><span><b>整張 PDF</b><small>開啟系統列印視窗並另存成 PDF</small></span></label>
+        <label><input type="radio" name="exportType" value="pdf"><span><b>整張 PDF</b><small>保留信件畫面與圖片，直接下載 PDF</small></span></label>
         <label><input type="radio" name="exportType" value="attachments"><span><b>僅附件</b><small>匯出信件內所有一般附件</small></span></label>
         <label><input type="radio" name="exportType" value="images"><span><b>僅圖片</b><small>匯出信件內嵌或附加的圖片</small></span></label>
       </fieldset>
@@ -109,6 +109,8 @@
   <div id="message-action-menu" class="message-action-menu" role="menu" hidden>
     <button id="download-message" type="button" role="menuitem"><span aria-hidden="true">⇩</span><span><b>下載完整信件</b><small>保留排版、圖片與附件的 .eml</small></span></button>
   </div>
+  <script defer src="/vendor/html2canvas-1.4.1.min.js"></script>
+  <script defer src="/vendor/jspdf-4.2.1.min.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
