@@ -13,8 +13,8 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Sites version 26: 37c369a2b10f309c3bfcf65d16613393b2bea772
-        versionCode 27
-        versionName "0.1.27"
+        versionCode 28
+        versionName "0.1.28"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

@@ -30,8 +30,10 @@ npm start
 1. 在 [Google Cloud Console](https://console.cloud.google.com/) 建立專案並啟用 Gmail API。
 2. 設定 OAuth consent screen。若應用程式仍在測試，將自己的 Google 帳號加入 Test users。
 3. 建立 OAuth 2.0 Client ID（Web application）。
-4. 將 `http://127.0.0.1:4141/api/oauth/google/callback` 加入 Authorized redirect URIs。
-5. 在「信箱帳號」填入 Client ID 與 Client Secret，完成 Google 授權。
+4. 將正式網站的 `/api/oauth/google/callback` 加入 Authorized redirect URIs；本機開發才使用 `http://127.0.0.1:4141/api/oauth/google/callback`。
+5. 管理者透過安全後端設定提供 `GOOGLE_OAUTH_CLIENT_ID`、`GOOGLE_OAUTH_CLIENT_SECRET` 與 `MAILBOX_PUBLIC_ORIGIN`。使用者只需在「信箱帳號」按「使用 Google 登入」，不在網頁填入應用程式憑證。
+
+OAuth client 設定、Token 交換與加密保存都在後端執行，state 綁定瀏覽器 Cookie、有效期十分鐘，搭配 PKCE 並只使用一次。正式 callback 必須由動態後端處理；靜態 Sites 不會執行 `src/server.js`。目前正式啟用條件與限制見 `OAUTH-SETUP.txt`，尚未完成 Google 真實登入驗證。
 
 Gmail 的 `gmail.modify` 屬敏感或受限制權限。若只供自己使用，可以維持測試模式；若公開給其他人使用，須依 Google 當時的驗證要求處理。
 

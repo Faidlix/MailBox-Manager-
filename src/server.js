@@ -1,18 +1,18 @@
 import express from 'express';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { config, googleRedirectUri } from './config.js';
+import { config, getGoogleOAuthSettings } from './config.js';
 import { createVault } from './crypto.js';
 import { listMessages, openDatabase } from './db.js';
 import { createMailService } from './mail-service.js';
-import { gmailAuthUrl, gmailExchangeCode } from './providers/gmail.js';
+import { gmailExchangeCode } from './providers/gmail.js';
+import { createGoogleOAuthRouter } from './google-oauth-flow.js';
+import { connectGoogleAccount } from './google-account.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { db, q } = openDatabase(config.dbPath);
 const vault = createVault(path.join(config.dataDir, '.vault-key'));
 const mail = createMailService({ db, q, vault, syncLimit: config.syncLimit });
-const pendingOAuth = new Map();
 const app = express();
 
 app.disable('x-powered-by');
@@ -31,27 +31,15 @@ const validateAddresses = (addresses, field) => {
 };
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/runtime', (_req, res) => {
+  res.set('Cache-Control', 'no-store').json({ api: true });
+});
 app.get('/api/accounts', (_req, res) => res.json(q.listAccounts.all()));
 
-app.post('/api/accounts/gmail/auth-url', (req, res) => {
-  required(req.body, ['clientId', 'clientSecret']);
-  const state = randomUUID();
-  const secret = { clientId: req.body.clientId.trim(), clientSecret: req.body.clientSecret.trim() };
-  pendingOAuth.set(state, { secret, createdAt: Date.now() });
-  for (const [key, value] of pendingOAuth) if (Date.now() - value.createdAt > 10 * 60_000) pendingOAuth.delete(key);
-  res.json({ url: gmailAuthUrl(secret, googleRedirectUri, state) });
-});
-
-app.get('/api/oauth/google/callback', asyncRoute(async (req, res) => {
-  const pending = pendingOAuth.get(req.query.state);
-  if (!pending || !req.query.code) throw Object.assign(new Error('OAuth 狀態已失效，請回到程式重新連線'), { status: 400 });
-  pendingOAuth.delete(req.query.state);
-  const profile = await gmailExchangeCode(pending.secret, googleRedirectUri, req.query.code);
-  const encrypted = vault.seal({ ...pending.secret, tokens: profile.tokens });
-  const existing = q.getAccountByEmail.get(profile.email);
-  if (existing) q.updateAccount.run('gmail', profile.displayName, encrypted, profile.email);
-  else q.insertAccount.run('gmail', profile.email, profile.displayName, encrypted);
-  res.type('html').send('<!doctype html><meta charset="utf-8"><title>連線成功</title><style>body{font:18px system-ui;background:#f5f7f2;padding:10vh;text-align:center}div{background:white;padding:40px;border-radius:20px;max-width:520px;margin:auto}</style><div><h1>信箱已連線</h1><p>可以關閉此頁，回到 MailBox Manager 同步郵件。</p></div>');
+app.use(createGoogleOAuthRouter({
+  getSettings: getGoogleOAuthSettings,
+  exchangeCode: gmailExchangeCode,
+  connectAccount: (profile, settings) => connectGoogleAccount({ q, vault }, profile, settings),
 }));
 
 app.post('/api/accounts/imap', (req, res) => {
@@ -149,8 +137,9 @@ app.delete('/api/rules/:id', (req, res) => { q.deleteRule.run(Number(req.params.
 
 app.use('/api', (_req, res) => res.status(404).json({ error: '找不到 API' }));
 app.use((error, _req, res, _next) => {
-  console.error(error);
-  res.status(error.status || 500).json({ error: error.status ? error.message : `操作失敗：${error.message}` });
+  const status = Number.isInteger(error.status) && error.status >= 400 && error.status <= 499 ? error.status : 500;
+  console.error('MailBox API request failed', { status });
+  res.status(status).json({ error: status < 500 ? error.message : '操作失敗，請稍後再試' });
 });
 
 const server = app.listen(config.port, config.host, (error) => {

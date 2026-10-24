@@ -53,7 +53,15 @@ const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stri
 let loadedMessages = [];
 const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
 const inboxFilters = { accountId: '', category: '', state: 'all' };
-const demoMode = location.protocol === 'https:' || new URLSearchParams(location.search).has('demo');
+async function detectDemoMode() {
+  if (new URLSearchParams(location.search).has('demo')) return true;
+  try {
+    const response = await fetch('/api/runtime', { cache: 'no-store' });
+    if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) return true;
+    return (await response.json()).api !== true;
+  } catch { return true; }
+}
+const demoMode = await detectDemoMode();
 const demoAccounts = [
   { id: 1, provider: 'gmail', email: 'personal.demo@gmail.com', display_name: '個人信箱', last_synced_at: new Date().toISOString() },
   { id: 2, provider: 'imap', email: 'work.demo@yahoo.com', display_name: '工作信箱', last_synced_at: new Date(Date.now() - 18 * 60_000).toISOString() },
@@ -1186,6 +1194,11 @@ async function openCompose(draft = {}) {
 async function mountAccounts(target, embedded = false) {
   setComposeVisibility(false);
   await loadAccounts();
+  let googleReady = false;
+  try {
+    const response = await fetch('/api/oauth/google/config', { cache: 'no-store' });
+    if (response.ok && response.headers.get('content-type')?.includes('application/json')) googleReady = (await response.json()).configured === true;
+  } catch { /* The static demo and an unconfigured server cannot start real OAuth. */ }
   target.innerHTML = `<div class="inline-settings">
     ${embedded ? '<div class="inline-panel-head"><div><h2>信箱帳號設定</h2><p>管理現有帳號或新增 Gmail、Yahoo 與一般信箱。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}
     ${quickFolderSection('accounts')}
@@ -1193,18 +1206,22 @@ async function mountAccounts(target, embedded = false) {
       <div class="account-card card"><div class="account-icon">${account.provider === 'gmail' ? 'G' : 'IM'}</div><div class="account-info"><b>${escapeHtml(account.email)}</b><small>${account.provider === 'gmail' ? 'Google OAuth' : 'IMAP / SMTP'} · ${account.last_synced_at ? `上次同步 ${formatDate(account.last_synced_at)}` : '尚未同步'}</small></div><button class="ghost sync-one" data-id="${account.id}">同步</button><button class="danger delete-account" data-id="${account.id}">移除</button></div>`).join('') : '<div class="card loading">尚未加入任何信箱。</div>'}</div>
     <h2 class="section-title" style="margin-top:32px">新增信箱</h2>
     <div class="split">
-      <form id="gmail-form" class="form-card card provider-connect-card"><h3>Gmail</h3><p>透過 Google 官方 OAuth 頁面授權，不會儲存 Gmail 密碼。</p><button id="google-oauth-console" class="ghost provider-external" type="button">開啟 Google OAuth 設定 ↗</button><label>Google Client ID<input name="clientId" required autocomplete="off"></label><label>Google Client Secret<input name="clientSecret" type="password" required autocomplete="off"></label><p class="quick-folder-note">Callback：<span class="code">${escapeHtml(location.origin)}/api/oauth/google/callback</span></p><div class="form-actions"><button class="primary provider-connect" type="submit">連結 Gmail ↗</button></div></form>
+      <form id="gmail-form" class="form-card card provider-connect-card"><h3>Gmail</h3><p>使用 Google 帳號登入並授權連結信箱，不需要輸入 Gmail 密碼或應用程式憑證。</p>${googleReady ? '' : '<p class="quick-folder-note">Google 登入服務尚未啟用，請稍後再試。</p>'}<div class="form-actions"><button class="primary provider-connect" type="submit" ${googleReady ? '' : 'disabled'}>使用 Google 登入 ↗</button></div></form>
       <form id="imap-form" class="form-card card provider-connect-card"><h3>Yahoo</h3><p>先到 Yahoo 官方帳號安全頁建立應用程式密碼，再回來完成連線。</p><button id="yahoo-authorize" class="ghost provider-external" type="button">開啟 Yahoo 授權頁 ↗</button><label>Yahoo Email<input name="email" type="email" required></label><label>應用程式密碼<input name="password" type="password" required autocomplete="off"></label><input name="imapHost" type="hidden" value="imap.mail.yahoo.com"><input name="smtpHost" type="hidden" value="smtp.mail.yahoo.com"><input name="imapPort" type="hidden" value="993"><input name="smtpPort" type="hidden" value="465"><div class="form-actions"><button class="primary provider-connect" type="submit">連結 Yahoo</button></div></form>
     </div></div>`;
   target.querySelector('.inline-panel-close')?.addEventListener('click', () => target.closest('dialog') ? target.closest('dialog').close() : renderRoute());
   bindQuickFolderDeletes(target, () => mountAccounts(target, embedded));
   target.querySelector('#gmail-form').addEventListener('submit', async (event) => {
-    event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
-    try { const data = Object.fromEntries(new FormData(event.currentTarget)); const result = await api('/api/accounts/gmail/auth-url', { method: 'POST', body: JSON.stringify(data) }); window.open(result.url, '_blank', 'noopener'); showNotice('請在新視窗完成 Google 授權'); }
-    catch (error) { showNotice(error.message, true); }
-    finally { setBusy(button, false); }
+    event.preventDefault();
+    if (!googleReady) return;
+    if (globalThis.Capacitor?.isNativePlatform?.()) {
+      showNotice('此 App 版本尚未支援 Google 登入跳轉，請先使用網頁版連結 Gmail。', true);
+      return;
+    }
+    // Top-level navigation keeps the callback binding cookie in the same browser.
+    // Do not create a state in a WebView and then move it to an external browser.
+    location.assign('/api/oauth/google/start');
   });
-  target.querySelector('#google-oauth-console').addEventListener('click', () => { window.open('https://console.cloud.google.com/apis/credentials', '_blank', 'noopener'); showNotice('請在 Google Cloud 建立 OAuth 用戶端並登記畫面上的 Callback'); });
   target.querySelector('#yahoo-authorize').addEventListener('click', () => { window.open('https://login.yahoo.com/account/security', '_blank', 'noopener'); showNotice('請在 Yahoo 官方頁面建立應用程式密碼，再回到此頁完成連線'); });
   target.querySelector('#imap-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
@@ -1468,6 +1485,13 @@ setInterval(syncInboxAutomatically, 5 * 60 * 1000);
 const initialMessageId = location.hash.match(/^#inbox\/message\/(\d+)$/)?.[1];
 renderRoute().then(async () => {
   if (initialMessageId) await openMessage(Number(initialMessageId));
+  const status = new URLSearchParams(location.search).get('gmail');
+  if (status) {
+    const messages = { connected: 'Gmail 已連結', cancelled: '已取消 Google 授權', expired: '登入已失效，請重新連結 Gmail', failed: 'Google 登入未完成，請重新連結 Gmail' };
+    if (messages[status]) showNotice(messages[status], !['connected', 'cancelled'].includes(status));
+    const clean = new URL(location.href); clean.searchParams.delete('gmail');
+    history.replaceState(history.state, '', `${clean.pathname}${clean.search}${clean.hash}`);
+  }
   await syncInboxAutomatically();
 }).catch((error) => showNotice(error.message, true));
 initializeAppDownload();

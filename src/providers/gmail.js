@@ -1,7 +1,10 @@
 import { google } from 'googleapis';
+import { googleOAuthSettings } from '../google-oauth-flow.js';
 
 function oauth(secret, redirectUri) {
-  const client = new google.auth.OAuth2(secret.clientId, secret.clientSecret, redirectUri);
+  const credentials = secret.oauthManaged ? googleOAuthSettings() : secret;
+  if (secret.oauthManaged && secret.managedClientId !== credentials.clientId) throw new Error('Google 登入設定已更新，請重新連結信箱');
+  const client = new google.auth.OAuth2(credentials.clientId, credentials.clientSecret, redirectUri);
   if (secret.tokens) client.setCredentials(secret.tokens);
   return client;
 }
@@ -15,13 +18,13 @@ export function gmailAuthUrl(secret, redirectUri, state) {
   });
 }
 
-export async function gmailExchangeCode(secret, redirectUri, code) {
+export async function gmailExchangeCode(secret, redirectUri, code, codeVerifier) {
   const client = oauth(secret, redirectUri);
-  const { tokens } = await client.getToken(code);
+  const { tokens } = await client.getToken({ code, ...(codeVerifier && { codeVerifier }) });
   client.setCredentials(tokens);
   const identity = google.oauth2({ version: 'v2', auth: client });
   const { data } = await identity.userinfo.get();
-  return { tokens, email: data.email, displayName: data.name || '' };
+  return { tokens, email: data.email, verifiedEmail: data.verified_email === true, displayName: data.name || '' };
 }
 
 function decode(value = '') {

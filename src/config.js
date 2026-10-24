@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { googleOAuthSettings } from './google-oauth-flow.js';
 
 export const config = {
   host: process.env.HOST || '127.0.0.1',
@@ -8,4 +9,5 @@ export const config = {
   syncLimit: Math.min(Math.max(Number(process.env.SYNC_LIMIT || 1000), 1), 1000),
 };
 
-export const googleRedirectUri = `http://${config.host}:${config.port}/api/oauth/google/callback`;
+export const getGoogleOAuthSettings = () => googleOAuthSettings(process.env, `http://127.0.0.1:${config.port}`);
+export const googleRedirectUri = getGoogleOAuthSettings().redirectUri;
