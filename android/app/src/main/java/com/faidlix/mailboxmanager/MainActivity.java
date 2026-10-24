@@ -1,7 +1,7 @@
 /*
  * Android entry point for the MailBox Manager Site wrapper.
  * Build with `npm run android:debug`; the activity loads the URL in capacitor.config.ts.
- * It handles Android Back, trusted .eml downloads, and legacy storage permission on Android 9 or older.
+ * It handles Android Back, trusted .eml downloads, verified updates, and legacy storage permission.
  */
 package com.faidlix.mailboxmanager;
 
@@ -88,6 +88,7 @@ public class MainActivity extends BridgeActivity {
     private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
     private PendingEml pendingEml;
     private PendingHttpDownload pendingHttpDownload;
+    private AppUpdateManager appUpdateManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -102,6 +103,7 @@ public class MainActivity extends BridgeActivity {
             }
         });
         webView.evaluateJavascript(INSTALL_DOWNLOAD_BRIDGE, null);
+        appUpdateManager = new AppUpdateManager(this);
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -109,6 +111,12 @@ public class MainActivity extends BridgeActivity {
                 handleAndroidBack(webView);
             }
         });
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (appUpdateManager != null) appUpdateManager.checkIfDue();
     }
 
     private void handleAndroidBack(WebView webView) {
@@ -262,6 +270,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onDestroy() {
+        if (appUpdateManager != null) appUpdateManager.close();
         downloadExecutor.shutdownNow();
         super.onDestroy();
     }
