@@ -1,0 +1,29 @@
+Android integration handoff (web version 26)
+
+The user requested a new APK after the web changes. This cloud checkout contains
+no android/ tree, Capacitor configuration, existing APK, or signing material.
+GitHub main was checked and also contains no Android project or release assets.
+No tool in this session can send a task to the separate desktop conversation.
+
+Use the existing desktop repository B:\AI\MailBox\MailBox-Manager-Sites.
+Previous Android commit: 121f072ccbf2a8d1a320319caed87d97467252be.
+Fetch the latest Sites source main with the official short-lived credential flow.
+Integrate the complete public/ tree, including message-export.js, vendor/ and
+app-release.json. Preserve the existing signing certificate, native download,
+storage permission and return-key bridge. Do not package downloads/*.apk inside
+the APK web assets (to avoid embedding the installer in itself).
+
+Navigation contract: #inbox is the list; #inbox/message/<id> is detail.
+The initial message adds one history entry, later switches replace that entry.
+Native back should delegate to web history (or click [data-action="back"]).
+Verify that one Android back press returns to the existing filtered list with its
+page/selection/scroll position, rather than exiting the app or skipping history.
+Right swipe advances to the next (older) message; left swipe to the previous.
+
+For direct website APK download, put the verified installer under
+public/downloads/mailbox-manager-<version>.apk and update public/app-release.json:
+version = actual APK version name, downloadUrl = /downloads/<filename>.apk,
+sha256 = verified file hash. Redeploy the same Site without changing its audience.
+The App download entry is intentionally unavailable until a real APK is provided.
+Report Android commit, APK path, SHA-256, certificate continuity and test results.
+OAuth remains a separate unfinished backend integration.

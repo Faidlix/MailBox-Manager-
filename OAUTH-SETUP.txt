@@ -1,0 +1,62 @@
+Google OAuth implementation and deployment status
+
+Implemented in the existing Node/Express backend:
+- GET /api/runtime identifies an actual API backend rather than guessing from HTTPS.
+- GET /api/oauth/google/config returns only a configured boolean.
+- GET /api/oauth/google/start starts top-level Google login.
+- POST /api/accounts/gmail/auth-url is retained for API callers. It requires the
+  configured same-origin Origin header and no longer accepts client credentials.
+- GET /api/oauth/google/callback claims a ten-minute, one-time state bound to the
+  starting browser's HttpOnly/Secure/SameSite=Lax cookie. It uses S256 PKCE and
+  redirects back to the inbox with only a fixed status, never a code/token.
+- OAuth client credentials come from backend settings. Google tokens are sealed
+  with the existing vault; reconnect preserves compatible refresh tokens/account
+  IDs. Client secrets are not copied into new account records or returned to UI.
+- OAuth SDK exceptions are not logged or included in callback responses.
+
+Backend setting names (set values using a secure administrative channel only):
+  MAILBOX_PUBLIC_ORIGIN
+    Production value: https://mailbox-manager-test.fantasy02dreamer08.chatgpt.site
+  GOOGLE_OAUTH_CLIENT_ID
+    The Web application client created in Google Cloud, not the Android client.
+  GOOGLE_OAUTH_CLIENT_SECRET
+    A backend secret. Never put it in source, frontend, chat, logs or a public file.
+
+The user selected the existing local assistant to set these through the secure
+backend administration channel. This selection is authorization to arrange that
+step, not evidence that any value has been installed. No such completed setting
+has been reported to this cloud worker; do not request secret values in chat.
+This cloud turn lacks cross-thread send tools, so only the existing supported
+coordination bridge can relay the non-sensitive setting names/status request.
+
+The redirect is derived from the configured origin and must remain exactly:
+https://mailbox-manager-test.fantasy02dreamer08.chatgpt.site/api/oauth/google/callback
+Keep the already registered Google Cloud Web application client and Android client.
+Do not create or rotate clients as part of setting backend runtime values.
+
+Current hosted blocker, confirmed by read-only Sites metadata:
+The retained .openai/hosting.json still declares static.directory=dist; Sites does
+not execute src/server.js. Runtime environment settings were empty (revision 0).
+This code is therefore a tested Node implementation, NOT a live Sites OAuth service.
+The current Site must acquire a supported same-origin dynamic backend before the
+registered callback can exchange a real Google authorization code. For Sites this
+requires a separately validated static-to-Worker/Vinext migration, platform request
+identity protection and persistent encrypted token storage, not just copying the
+Express server into static assets. Do not expose the loopback Express service
+directly to the Internet or change the Site's owner-private audience to bypass this.
+
+The frontend now detects actual API availability, has no client ID/secret fields,
+and disables real login until the backend says configured=true. Static demo mail
+cannot be presented as a successfully connected real mailbox. No new production
+deployment or Google end-to-end login has been verified by this implementation.
+
+Android is intentionally not modified. Starting OAuth in a WebView and moving only
+the URL to another browser loses the binding cookie and is unsafe. The existing
+native worker must integrate an external-browser entry into /api/oauth/google/start
+and an approved App Link/custom-scheme return using the dedicated Android client
+where appropriate. A real App return flow has not been implemented or verified here.
+
+Tests use fake credentials and stubbed Google token exchange. They validate URL
+configuration, PKCE binding, state/cookie/TTL, one-time replay/concurrency behavior,
+cancellation, error redaction and encrypted reconnect persistence. They do not
+represent real Google consent, Gmail API connectivity or Android device testing.
