@@ -33,7 +33,8 @@ const QUICK_FOLDERS_KEY = 'mailbox-manager-quick-folders-v1';
 const loadQuickFolders = () => {
   try {
     const saved = JSON.parse(localStorage.getItem(QUICK_FOLDERS_KEY));
-    return { accounts: Array.isArray(saved?.accounts) ? saved.accounts : [], categories: Array.isArray(saved?.categories) ? saved.categories : [] };
+    const folders = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string' && item.name.trim()) : [];
+    return { accounts: folders(saved?.accounts), categories: folders(saved?.categories) };
   } catch { return { accounts: [], categories: [] }; }
 };
 let quickFolders = loadQuickFolders();
@@ -49,7 +50,18 @@ let autoSyncRunning = false;
 let autoSyncRefreshPending = false;
 let lastAutoSync = 0;
 let handledHash = location.hash;
-const saveQuickFolders = () => localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
+let savedQuickFolders = structuredClone(quickFolders);
+const saveQuickFolders = () => {
+  try {
+    localStorage.setItem(QUICK_FOLDERS_KEY, JSON.stringify(quickFolders));
+    savedQuickFolders = structuredClone(quickFolders);
+    return true;
+  } catch {
+    quickFolders = structuredClone(savedQuickFolders);
+    showNotice('無法儲存設定，請確認可用空間與瀏覽器儲存權限後重試', true);
+    return false;
+  }
+};
 let loadedMessages = [];
 const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
 const inboxFilters = { accountId: '', category: '', state: 'all' };
@@ -124,6 +136,7 @@ const demoApi = async (url, options = {}) => {
     if (state === 'archive') result = result.filter((item) => item.folder === 'ARCHIVE');
     if (state === 'spam') result = result.filter((item) => item.folder === 'SPAM');
     if (state === 'trash') result = result.filter((item) => item.folder === 'TRASH');
+    if (!['spam', 'trash'].includes(state)) result = result.filter((item) => !['SPAM', 'TRASH'].includes(item.folder));
     const limit = Math.min(Math.max(Number(parsed.searchParams.get('limit')) || 1000, 1), 1000);
     return structuredClone(result.slice(0, limit));
   }
@@ -145,7 +158,7 @@ const demoApi = async (url, options = {}) => {
   if (messageMatch && method === 'DELETE') { const item = demoMessages.find((message) => message.id === Number(messageMatch[1])); if (item) item.folder = 'TRASH'; return null; }
   if (url === '/api/sync') return demoAccounts.map((account) => ({ accountId: account.id, count: demoMessages.filter((message) => message.account_id === account.id).length, ok: true }));
   if (/^\/api\/accounts\/\d+\/sync$/.test(parsed.pathname)) return { count: demoMessages.length };
-  if (url === '/api/send') return { ok: true };
+  if (url === '/api/send') throw new Error('目前為示範模式，未實際寄出郵件。請先連結真實信箱。');
   if (url === '/api/rules' && method === 'GET') return structuredClone(demoRules);
   if (url === '/api/rules' && method === 'POST') { const rule = { id: Date.now(), ...JSON.parse(options.body), enabled: 1 }; demoRules.unshift(rule); return { id: rule.id }; }
   const ruleMatch = parsed.pathname.match(/^\/api\/rules\/(\d+)$/);
@@ -156,7 +169,7 @@ const demoApi = async (url, options = {}) => {
 };
 const api = async (url, options = {}) => {
   if (demoMode) return demoApi(url, options);
-  const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
+  const response = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
   if (!response.ok) {
     const result = await response.json().catch(() => ({}));
     throw new Error(result.error || `要求失敗 (${response.status})`);
@@ -167,14 +180,17 @@ const api = async (url, options = {}) => {
 
 if (demoMode) document.querySelector('#demo-label').hidden = false;
 
+let noticeTimeout = null;
 function showNotice(message, error = false) {
   const openDialog = document.querySelector('dialog[open]');
   (openDialog || document.body).append(noticeRoot);
   noticeRoot.innerHTML = `<div class="notice ${error ? 'error' : ''}">${escapeHtml(message)}</div>`;
-  setTimeout(() => { noticeRoot.innerHTML = ''; }, 4200);
+  clearTimeout(noticeTimeout);
+  noticeTimeout = setTimeout(() => { noticeRoot.innerHTML = ''; }, 4200);
 }
 
 function setComposeVisibility(visible) {
+  visible = visible && !document.body.classList.contains('message-open') && !document.body.classList.contains('settings-open') && !document.querySelector('dialog[open]');
   composeButton.hidden = !visible;
   document.body.classList.toggle('compose-available', visible);
 }
@@ -188,8 +204,9 @@ function setFilterDrawer(open) {
 }
 
 function setBusy(button, busy, label = '處理中…') {
-  if (busy) { button.dataset.original = button.textContent; button.textContent = label; button.disabled = true; }
-  else { button.textContent = button.dataset.original || button.textContent; button.disabled = false; }
+  if (!button) return;
+  if (busy) { if (!button.dataset.busy) button.dataset.original = button.innerHTML; button.dataset.busy = 'true'; button.textContent = label; button.disabled = true; }
+  else { if (button.dataset.busy) button.innerHTML = button.dataset.original; delete button.dataset.busy; delete button.dataset.original; button.disabled = false; }
 }
 
 async function loadAccounts() {
@@ -198,27 +215,34 @@ async function loadAccounts() {
 }
 
 function formatDate(value) {
-  const date = new Date(value.endsWith?.('Z') ? value : `${value}Z`);
+  const date = messageDate(value);
+  if (!Number.isFinite(date.getTime())) return '日期不明';
   return new Intl.DateTimeFormat('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
 function messageDate(value) {
-  return new Date(value.endsWith?.('Z') ? value : `${value}Z`);
+  if (value instanceof Date) return new Date(value.getTime());
+  if (typeof value !== 'string' || !value.trim()) return new Date(NaN);
+  const text = value.trim();
+  return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text}Z`);
 }
 
 function messageDateKey(value) {
   const date = messageDate(value);
+  if (!Number.isFinite(date.getTime())) return '';
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function formatMessageGroupDate(value) {
   const date = messageDate(value);
+  if (!Number.isFinite(date.getTime())) return '日期不明';
   const weekday = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()];
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}（${weekday}）`;
 }
 
 function formatMessagePickerDate(value) {
   const date = messageDate(value);
+  if (!Number.isFinite(date.getTime())) return '--/--';
   return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
 }
 
@@ -250,7 +274,7 @@ function bindQuickFolderDeletes(target, refresh) {
   target.querySelectorAll('.quick-folder-delete').forEach((button) => button.addEventListener('click', async () => {
     const type = button.dataset.folderType;
     quickFolders[type] = quickFolders[type].filter((folder) => folder.id !== button.dataset.folderId);
-    saveQuickFolders();
+    if (!saveQuickFolders()) return;
     showNotice('資料夾已刪除');
     await refresh();
   }));
@@ -262,7 +286,13 @@ function applyMessageViewFilter(source) {
   const sender = messageViewFilter.sender.toLocaleLowerCase();
   const subject = messageViewFilter.subject.toLocaleLowerCase();
   return source.filter((message) => {
-    const received = new Date(message.received_at).getTime();
+    const folder = { archive: 'ARCHIVE', spam: 'SPAM', trash: 'TRASH' }[inboxFilters.state];
+    if (folder && message.folder !== folder) return false;
+    if (!['spam', 'trash'].includes(inboxFilters.state) && ['SPAM', 'TRASH'].includes(message.folder)) return false;
+    if (inboxFilters.state === 'starred' && !message.is_starred) return false;
+    if (inboxFilters.state === 'unread' && message.is_read) return false;
+    if (inboxFilters.category && message.category !== inboxFilters.category) return false;
+    const received = messageDate(message.received_at).getTime();
     const senderText = `${message.sender_name || ''} ${message.sender_email || ''}`.toLocaleLowerCase();
     const subjectText = String(message.subject || '').toLocaleLowerCase();
     return (!from || received >= from) && (!to || received <= to) && (!sender || senderText.includes(sender)) && (!subject || subjectText.includes(subject));
@@ -425,6 +455,10 @@ async function toggleMessageStar(id) {
     message.is_starred = starred ? 1 : 0;
     const demoMessage = demoMode && demoMessages.find((item) => item.id === id);
     if (demoMessage) demoMessage.is_starred = message.is_starred;
+    const loaded = loadedMessages.find((item) => item.id === id);
+    if (loaded) loaded.is_starred = message.is_starred;
+    messages = applyMessageViewFilter(loadedMessages);
+    for (const selected of selectedMessageIds) if (!messages.some((item) => item.id === selected)) selectedMessageIds.delete(selected);
     renderMessageList();
     showNotice(starred ? '已加上星號' : '已移除星號');
   } catch (error) { showNotice(error.message, true); }
@@ -445,7 +479,7 @@ async function categorizeSelectedMessages(category) {
     if (!category) return;
     if (!quickFolders.categories.some((folder) => folder.name === category)) {
       quickFolders.categories.push({ id: `category-${Date.now()}`, name: category });
-      saveQuickFolders();
+      if (!saveQuickFolders()) return;
     }
   }
   try {
@@ -458,6 +492,7 @@ async function categorizeSelectedMessages(category) {
       if (demo) demo.category = category;
     });
     selectedMessageIds.clear();
+    messages = applyMessageViewFilter(loadedMessages);
     renderMessageList();
     showNotice(`已將 ${selected.length} 封信件分類為「${category}」`);
   } catch (error) { showNotice(error.message, true); }
@@ -536,6 +571,8 @@ function bindBulkToolbar() {
     try {
       await runInBatches(selected, (message) => api(`/api/messages/${message.id}/star`, { method: 'PATCH', body: JSON.stringify({ starred }) }));
       selected.forEach((message) => { message.is_starred = starred ? 1 : 0; });
+      messages = applyMessageViewFilter(loadedMessages);
+      for (const id of selectedMessageIds) if (!messages.some((message) => message.id === id)) selectedMessageIds.delete(id);
       renderMessageList();
       showNotice(starred ? '已為選取信件加上星號' : '已移除選取信件的星號');
     } catch (error) { showNotice(error.message, true); }
@@ -581,7 +618,8 @@ function renderMessageList() {
   if (!messages.length) {
     pagination.hidden = true;
     pagination.innerHTML = '';
-    list.innerHTML = `<div class="loading"><b>目前沒有郵件</b><p>${accounts.length ? '按「同步全部」取得最新郵件。' : '先到「信箱帳號」連線一個帳號。'}</p></div>`;
+    const filtered = Object.values(messageViewFilter).some(Boolean) || inboxFilters.accountId || inboxFilters.category || inboxFilters.state !== 'all' || document.querySelector('#search-input')?.value;
+    list.innerHTML = `<div class="loading"><b>目前沒有郵件</b><p>${filtered ? '找不到符合條件的郵件，請調整搜尋或清除篩選。' : accounts.length ? '可從信箱設定同步郵件。' : '先到信箱設定連結一個帳號。'}</p></div>`;
     updateBulkToolbar();
     return;
   }
@@ -618,8 +656,13 @@ function renderMessageList() {
   }));
   list.querySelectorAll('.message-category-filter').forEach((button) => button.addEventListener('click', () => {
     const category = inboxFilters.category === button.dataset.categoryFilter ? '' : button.dataset.categoryFilter;
-    const target = [...document.querySelectorAll('#category-filters [data-category]')].find((item) => item.dataset.category === category);
-    if (target) target.click();
+    let target = [...document.querySelectorAll('#category-filters [data-category]')].find((item) => item.dataset.category === category);
+    if (!target) {
+      target = document.createElement('button');
+      target.type = 'button'; target.className = 'filter-chip'; target.dataset.category = category; target.textContent = category;
+      document.querySelector('#category-filters').append(target);
+    }
+    target.click();
   }));
   list.querySelectorAll('.message-date-filter').forEach((button) => button.addEventListener('click', () => {
     const key = button.dataset.dateFilter;
@@ -637,7 +680,11 @@ function renderMessageList() {
     const id = Number(row.dataset.id);
     const open = (event) => { if (!row.dataset.ignoreClick && !event?.target.closest('button,input')) openMessage(id); };
     row.addEventListener('click', open);
-    row.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') open(); });
+    row.addEventListener('keydown', (event) => {
+      if (event.target !== row || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      open(event);
+    });
     row.querySelector('.message-select').addEventListener('change', (event) => {
       if (event.currentTarget.checked) selectedMessageIds.add(id); else selectedMessageIds.delete(id);
       row.classList.toggle('batch-selected', event.currentTarget.checked);
@@ -831,7 +878,8 @@ function parseMimeFiles(raw, mode) {
     const isImage = type.startsWith('image/');
     const wanted = mode === 'images' ? isImage : disposition === 'attachment';
     if (!wanted) return;
-    let filename = encodedName ? decodeURIComponent(encodedName) : plainName;
+    let filename = plainName;
+    if (encodedName) { try { filename = decodeURIComponent(encodedName); } catch { /* Use the plain or generated name for malformed MIME headers. */ } }
     filename = safeFilename(filename || `${isImage ? 'image' : 'attachment'}-${index + 1}.${extensionByType[type] || 'bin'}`);
     const encoding = headers.match(/^Content-Transfer-Encoding:\s*([^\r\n]+)/im)?.[1]?.toLowerCase();
     let bytes;
@@ -842,7 +890,7 @@ function parseMimeFiles(raw, mode) {
       const decoded = encoding === 'quoted-printable'
         ? content.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (_match, hex) => String.fromCharCode(parseInt(hex, 16)))
         : content;
-      bytes = new TextEncoder().encode(decoded);
+      bytes = encoding === 'quoted-printable' ? Uint8Array.from(decoded, (char) => char.charCodeAt(0)) : new TextEncoder().encode(decoded);
     }
     const file = new File([bytes], filename, { type });
     file.contentId = headers.match(/^Content-ID:\s*<([^>]+)>/im)?.[1] || '';
@@ -887,7 +935,7 @@ async function saveExportFiles(files) {
       await writable.write(file);
       await writable.close();
       return;
-    } catch (error) { if (error.name === 'AbortError') throw error; }
+    } catch (error) { if (error.name !== 'NotSupportedError') throw error; }
   }
   if (files.length > 1 && window.showDirectoryPicker) {
     try {
@@ -899,7 +947,7 @@ async function saveExportFiles(files) {
         await writable.close();
       }
       return;
-    } catch (error) { if (error.name === 'AbortError') throw error; }
+    } catch (error) { if (error.name !== 'NotSupportedError') throw error; }
   }
   files.forEach((file, index) => setTimeout(() => {
     const link = document.createElement('a');
@@ -984,6 +1032,9 @@ function closeMessageDetail() {
   detail.classList.add('empty-state');
   detail.innerHTML = '';
   detail.ontouchstart = null; detail.ontouchend = null;
+  messages = applyMessageViewFilter(loadedMessages);
+  for (const id of selectedMessageIds) if (!messages.some((message) => message.id === id)) selectedMessageIds.delete(id);
+  renderMessageList();
   const list = document.querySelector('#message-list-scroll');
   if (list) list.scrollTop = Number(layout.dataset.listScrollY || 0);
   if (autoSyncRefreshPending) {
@@ -1004,8 +1055,11 @@ async function openMessage(id) {
     document.removeEventListener('click', activeDetailOutsideHandler);
     activeDetailOutsideHandler = null;
   }
-  const message = await api(`/api/messages/${id}`);
+  let message;
+  try { message = await api(`/api/messages/${id}`); }
+  catch (error) { if (requestToken === activeMessageRequest) showNotice(`無法載入信件：${error.message}`, true); return; }
   if (requestToken !== activeMessageRequest) return;
+  if (!message) { showNotice('找不到這封信件，可能已被移除', true); return; }
   if (!message.is_read) {
     try {
       await api(`/api/messages/${id}/read`, { method: 'PATCH', body: JSON.stringify({ read: true }) });
@@ -1094,7 +1148,7 @@ async function openMessage(id) {
       if (!category) { closeDetailPickers(); return; }
       if (!quickFolders.categories.some((folder) => folder.name === category)) {
         quickFolders.categories.push({ id: `category-${Date.now()}`, name: category });
-        saveQuickFolders();
+        if (!saveQuickFolders()) return;
       }
     }
     try {
@@ -1146,9 +1200,10 @@ async function openMessage(id) {
   detail.querySelector('[data-action="download"]').addEventListener('click', () => openMessageDownloadDialog(message));
   detail.querySelector('[data-action="trash"]').addEventListener('click', async (event) => {
     if (!confirm('確定將這封郵件移至遠端信箱的垃圾桶？')) return;
-    setBusy(event.currentTarget, true);
+    const button = event.currentTarget;
+    setBusy(button, true);
     try { await api(`/api/messages/${id}`, { method: 'DELETE' }); showNotice('郵件已移至垃圾桶'); await renderRoute(); }
-    catch (error) { showNotice(error.message, true); setBusy(event.currentTarget, false); }
+    catch (error) { showNotice(error.message, true); setBusy(button, false); }
   });
   const openInlineComposer = (mode) => {
     const reply = detail.querySelector('.inline-reply');
@@ -1156,6 +1211,10 @@ async function openMessage(id) {
     reply.hidden = false;
     const isReply = mode === 'reply';
     reply.innerHTML = `<form class="inline-compose-form"><h3>${isReply ? '回覆' : '轉寄'}</h3><label>收件者<input name="to" type="email" value="${isReply ? escapeHtml(message.sender_email) : ''}" required></label><label>主旨<input name="subject" value="${escapeHtml(isReply ? (message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`) : (message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`))}" required></label><label>內容<textarea name="text" rows="8" required></textarea></label><div class="form-actions"><button class="ghost" type="button" data-inline-cancel>取消</button><button class="primary" type="submit">寄出</button></div></form>`;
+    if (!isReply) {
+      const original = message.text_body || (message.html_body ? new DOMParser().parseFromString(message.html_body, 'text/html').body.textContent : message.snippet) || '';
+      reply.querySelector('textarea').value = `\n\n---------- 轉寄信件 ----------\n寄件者：${message.sender_name || ''} <${message.sender_email || ''}>\n日期：${formatDate(message.received_at)}\n主旨：${message.subject || ''}\n\n${original}`;
+    }
     reply.querySelector('[data-inline-cancel]').addEventListener('click', () => { reply.hidden = true; reply.innerHTML = ''; body.hidden = false; });
     reply.querySelector('form').addEventListener('submit', async (event) => {
       event.preventDefault(); const button = event.currentTarget.querySelector('[type="submit"]'); setBusy(button, true, '寄送中…');
@@ -1307,7 +1366,7 @@ quickFolderForm.addEventListener('submit', async (event) => {
   }
   const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   quickFolders[quickFolderType].push({ id, name });
-  saveQuickFolders();
+  if (!saveQuickFolders()) return;
   quickFolderDialog.close();
   showNotice(`已新增「${name}」`);
   await renderRoute();

@@ -46,6 +46,7 @@ test('share starts during the click and restores the button on permission denial
     let handler;
     const notices = [];
     const button = { disabled: false, textContent: '分享', dataset: {} };
+    Object.defineProperty(button, 'innerHTML', { get() { return this.textContent; }, set(value) { this.textContent = value; } });
     let called = false;
     const context = vm.createContext({
       exportSession: { readyType: 'eml', readyFiles: ['file'], message: { subject: '信件' } },

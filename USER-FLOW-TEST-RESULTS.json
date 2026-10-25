@@ -1,0 +1,249 @@
+{
+  "kind": "DOM simulation plus Node regression; not browser/native acceptance",
+  "baseCommit": "43649058f687c2cdc8eeee1d1064a15e8e68ce0e",
+  "sourceFingerprintSha256": "e2c9001ba9556015e3262e29d10615e2bf95ea067e037823991302fa78f6eea3",
+  "rounds": [
+    {
+      "round": 1,
+      "startedAtUtc": "2026-10-25T20:21:43.499698+00:00",
+      "durationSeconds": 14.792,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 2,
+      "startedAtUtc": "2026-10-25T20:21:58.292935+00:00",
+      "durationSeconds": 17.431,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 3,
+      "startedAtUtc": "2026-10-25T20:22:15.727477+00:00",
+      "durationSeconds": 46.947,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 4,
+      "startedAtUtc": "2026-10-25T20:23:02.675137+00:00",
+      "durationSeconds": 14.661,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 5,
+      "startedAtUtc": "2026-10-25T20:23:17.336274+00:00",
+      "durationSeconds": 25.778,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 6,
+      "startedAtUtc": "2026-10-25T20:23:43.117318+00:00",
+      "durationSeconds": 16.52,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 7,
+      "startedAtUtc": "2026-10-25T20:23:59.638384+00:00",
+      "durationSeconds": 22.603,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 8,
+      "startedAtUtc": "2026-10-25T20:24:22.242177+00:00",
+      "durationSeconds": 18.539,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 9,
+      "startedAtUtc": "2026-10-25T20:24:40.784371+00:00",
+      "durationSeconds": 18.328,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 10,
+      "startedAtUtc": "2026-10-25T20:24:59.113265+00:00",
+      "durationSeconds": 16.172,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 11,
+      "startedAtUtc": "2026-10-25T20:25:15.285341+00:00",
+      "durationSeconds": 17.682,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 12,
+      "startedAtUtc": "2026-10-25T20:25:32.967538+00:00",
+      "durationSeconds": 14.575,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 13,
+      "startedAtUtc": "2026-10-25T20:25:47.545178+00:00",
+      "durationSeconds": 14.817,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 14,
+      "startedAtUtc": "2026-10-25T20:26:02.362394+00:00",
+      "durationSeconds": 15.191,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 15,
+      "startedAtUtc": "2026-10-25T20:26:17.554211+00:00",
+      "durationSeconds": 16.28,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 16,
+      "startedAtUtc": "2026-10-25T20:26:33.837605+00:00",
+      "durationSeconds": 17.256,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 17,
+      "startedAtUtc": "2026-10-25T20:26:51.095764+00:00",
+      "durationSeconds": 18.721,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 18,
+      "startedAtUtc": "2026-10-25T20:27:09.817435+00:00",
+      "durationSeconds": 15.908,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 19,
+      "startedAtUtc": "2026-10-25T20:27:25.727934+00:00",
+      "durationSeconds": 21.747,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    {
+      "round": 20,
+      "startedAtUtc": "2026-10-25T20:27:47.478038+00:00",
+      "durationSeconds": 16.438,
+      "exitCode": 0,
+      "tests": 64,
+      "pass": 64,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    }
+  ],
+  "sourceFingerprintInputs": [
+    "public/app.js",
+    "src/db.js",
+    "test/user-flows.test.js",
+    "test/helpers/mailbox-dom.js",
+    "package-lock.json"
+  ],
+  "sourceFingerprintMethod": "SHA-256 of UTF-8 file bytes concatenated in listed order",
+  "summary": {
+    "completedRounds": 20,
+    "passedRounds": 20,
+    "nodeChecksPerRound": 64,
+    "totalNodeChecks": 1280,
+    "domScenariosPerRound": 20,
+    "totalDomScenarioRuns": 400
+  },
+  "earlierSeries": {
+    "completedRounds": 20,
+    "allPassed": true,
+    "sourceFingerprintSha256": "4b7f2fa6e070f92ed5188972b8cdb953997ffd1db71ed7ed96ffddfd3e144ca8",
+    "note": "Before expanding scenario 06 to include marking spam inside detail and returning to list; final series above covers that additional fix."
+  }
+}

@@ -1,0 +1,90 @@
+User-operation simulation and repair review
+
+Baseline: bundled Android startup change (public handoff 1995cb6bc5ad93671ccbcaa96c1054d31526e370;
+local equivalent 43649058f687c2cdc8eeee1d1064a15e8e68ce0e).
+This review changes frontend behavior, the SQLite folder query and tests. It does
+not build/publish an APK, deploy Sites, alter audience, credentials or signing, or
+retry the previously blocked local build dispatch.
+
+Method:
+- A jsdom DOM harness executes public/app.js, mounts actual templates and dispatches
+  click/change/input/submit/keyboard/touch events. Each scenario gets fresh state.
+- Only demo mail is manipulated. File chooser/sharing failures, local-storage
+  denial, timers and unavailable API are simulated; no real messages are sent.
+- Existing Node tests exercise SQLite, EML parsing, navigation, stubbed OAuth,
+  update contracts and static Android release security settings.
+- Twenty full sequential regression runs are recorded in USER-FLOW-TEST-RESULTS.json.
+  Each run executes the 20 DOM scenarios plus the existing tests. The Node runner
+  also counts the helper module as a load-only test; do not describe it as a user
+  scenario. Raw TAP logs are temporary under /tmp/mailbox-user-flow-logs on this
+  executor, not remotely accessible artifacts.
+- No supported browser preview/CUA entry point, Android SDK/signing key or connected
+  device is available here. This is not visual/browser/native acceptance testing.
+
+Scenario matrix:
+01 Cold start / malformed saved folder entries.
+02 Forward/back page navigation and page/total counts.
+03 Select page / outside cancellation / individual selection / categorization and
+   immediately filtering the newly assigned category.
+04 Sender/date/search filters, combined reset, empty search results.
+05 Star removal while viewing the starred filter.
+06 Moving mail to trash; ordinary list excludes it; trash retains it. Marking spam
+   inside detail then returning to the list must also remove that row immediately.
+07 Archive retrieval; classification-rule add/delete; account settings; unavailable
+   Google OAuth remains disabled; demo sync/removal notices.
+08 Open auto-read, manually mark unread and return to an accurate list.
+09 Keyboard interaction on child controls must not open their parent message.
+10 Missing-message navigation remains usable and reports a helpful error.
+11 Single history entry, actual touch handler wraparound and list return.
+12 Compose in demo mode does not claim a real email was sent; controls recover.
+13 Forward includes original sender/date/subject/body; cancel restores content;
+   reply recipient and failed demo-send state are preserved.
+14 Closing help while reading does not expose the compose button.
+15 Storage denial rolls back folder state and reports a recoverable problem.
+16 Explicit timezone offsets, missing dates and invalid-date fallback.
+17 A previous notice timeout cannot erase a newer notice.
+18 Repeated busy states preserve original text/icons and enable controls again.
+19 Save-picker denial propagates instead of silently choosing another download.
+20 MIME malformed filename fallback and quoted-printable UTF-8 byte preservation.
+
+Repairs:
+- Validate persisted folder entries and roll back failed storage mutations.
+- Reconcile starred/unread/category filters and selection after local changes.
+- Exclude SPAM/TRASH from ordinary demo and SQLite list views; keep explicit views.
+  An additional detail-to-list spam test caught stale local folder filtering after
+  the first 20-run series; it was reproduced, repaired, then the expanded suite was
+  rerun for the final 20-run series recorded in the JSON report.
+- Refresh row state on detail return while preserving scroll position.
+- Restrict message keyboard activation to the row itself.
+- Handle absent/failed message loads; retain async delete button reference.
+- Clearly reject demo sends rather than claiming delivery.
+- Populate forwarded text with the original message metadata and content.
+- Keep compose visibility consistent when closing dialogs within detail.
+- Preserve explicit timezone offsets and provide invalid-date placeholders.
+- Cancel the previous notice timer; restore button HTML after busy state.
+- Respect save-picker refusal, and tolerate malformed MIME filenames without
+  corrupting quoted-printable UTF-8 bytes.
+- Permit immediate filtering by newly assigned categories and give actionable
+  empty-state wording. Preserve JSON headers when custom request headers are used.
+
+Outstanding acceptance limits and known feature gaps:
+- Real Google/Yahoo sign-in and mailbox synchronization are not live. Yahoo still
+  has the earlier app-password UI; OAuth replacement needs its own service setup.
+  Do not present disabled/unimplemented authorization as a passed login flow.
+- Real browser layout, PDF canvas rendering, external-image/CORS behavior, file
+  save dialogs, system sharing and Android bridge behavior require browser/device
+  acceptance. PDF rendering is deliberately not emulated as a successful export.
+- Native blob-download bridge currently specializes in EML. Real PDF/image/file
+  exports on Android need device validation; a DOM test does not prove MIME/filename
+  preservation through that native bridge.
+- Play Protect, same-signer installation/data retention, release assembly and APK
+  publication were not performed. Existing public version is not changed by this
+  review. The platform-blocked build handoff remains stopped.
+
+Reproduce with a compatible Node version (this run used Node 24.19.0):
+npm ci --cache /tmp/mailbox-app-npm-cache --no-audit --no-fund
+npm run check
+node --test test/user-flows.test.js
+npm test
+The new jsdom development dependency requires Node ^22.22.2, ^24.15.0 or >=26.
+It is not bundled in public/ or in Android runtime assets.

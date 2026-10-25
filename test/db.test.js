@@ -20,6 +20,12 @@ test('stores and searches a unified message index', () => {
     assert.equal(archived[0].folder, 'ARCHIVE');
     q.setMessageStarred.run(1, Number(inserted.lastInsertRowid));
     assert.equal(listMessages(db, { state: 'starred' }).length, 1);
+    q.setMessageFolder.run('TRASH', Number(inserted.lastInsertRowid));
+    assert.equal(listMessages(db, { state: 'all' }).length, 0);
+    assert.equal(listMessages(db, { state: 'trash' }).length, 1);
+    q.setMessageFolder.run('SPAM', Number(inserted.lastInsertRowid));
+    assert.equal(listMessages(db, { state: 'starred' }).length, 0);
+    assert.equal(listMessages(db, { state: 'spam' }).length, 1);
     db.close();
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

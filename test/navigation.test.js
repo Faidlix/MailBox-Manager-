@@ -26,7 +26,8 @@ test('switching messages keeps one history entry; back restores the existing lis
       body: { classList: { contains: () => open, remove: () => { open = false; } } },
       querySelector: (selector) => ({ '#message-detail': detail, '#message-list-scroll': list, '.mail-toolbar': toolbar })[selector],
     },
-    setComposeVisibility() {},
+    setComposeVisibility() {}, messages: [], loadedMessages: [], selectedMessageIds: new Set(),
+    applyMessageViewFilter: (items) => items, renderMessageList() {},
   });
   vm.runInContext(source.slice(source.indexOf('function updateMessageHistory'), source.indexOf('async function openMessage(id)')), context);
   vm.runInContext('updateMessageHistory(1)', context);
