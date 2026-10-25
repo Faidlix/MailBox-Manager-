@@ -28,12 +28,14 @@ public class MainActivityTest {
     }
 
     @Test
-    public void acceptsOnlyTheExactHttpsSiteOrigin() {
-        assertTrue(MainActivity.isTrustedAppUrl("https://mailbox-manager-test.fantasy02dreamer08.chatgpt.site/#inbox"));
-        assertTrue(MainActivity.isTrustedAppUrl("https://mailbox-manager-test.fantasy02dreamer08.chatgpt.site:443/api/messages/1"));
-        assertFalse(MainActivity.isTrustedAppUrl("http://mailbox-manager-test.fantasy02dreamer08.chatgpt.site/"));
-        assertFalse(MainActivity.isTrustedAppUrl("https://mailbox-manager-test.fantasy02dreamer08.chatgpt.site.evil.example/"));
-        assertFalse(MainActivity.isTrustedAppUrl("https://mailbox-manager-test.fantasy02dreamer08.chatgpt.site:8443/"));
+    public void acceptsOnlyTheBundledHttpsOrigin() {
+        assertTrue(MainActivity.isTrustedAppUrl("https://localhost/#inbox"));
+        assertTrue(MainActivity.isTrustedAppUrl("https://localhost:443/message.eml"));
+        assertFalse(MainActivity.isTrustedAppUrl("http://localhost/"));
+        assertFalse(MainActivity.isTrustedAppUrl("https://localhost.evil.example/"));
+        assertFalse(MainActivity.isTrustedAppUrl("https://localhost:8443/"));
+        assertFalse(MainActivity.isTrustedAppUrl("https://user:password@localhost/"));
+        assertFalse(MainActivity.isTrustedAppUrl("https://mailbox-manager-test.fantasy02dreamer08.chatgpt.site/"));
         assertFalse(MainActivity.isTrustedAppUrl(null));
     }
 }

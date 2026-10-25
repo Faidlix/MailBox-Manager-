@@ -1,6 +1,6 @@
 /*
- * Android entry point for the MailBox Manager Site wrapper.
- * Build with `npm run android:debug`; the activity loads the URL in capacitor.config.ts.
+ * Android entry point for the bundled MailBox Manager interface.
+ * Build with `npm run android:debug`; Capacitor serves bundled public/ assets locally.
  * It handles Android Back, trusted .eml downloads, verified updates, and legacy storage permission.
  */
 package com.faidlix.mailboxmanager;
@@ -38,7 +38,7 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends BridgeActivity {
 
-    private static final String TRUSTED_HOST = "mailbox-manager-test.fantasy02dreamer08.chatgpt.site";
+    private static final String TRUSTED_HOST = "localhost";
     private static final String EML_MIME_TYPE = "message/rfc822";
     private static final int STORAGE_PERMISSION_REQUEST = 4107;
     private static final int MAX_EML_BYTES = 50 * 1024 * 1024;

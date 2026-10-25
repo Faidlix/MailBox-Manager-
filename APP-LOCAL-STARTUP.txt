@@ -1,0 +1,37 @@
+Bundled Android startup: no ChatGPT login required
+
+Change based on Android 0.1.29 source fcb88b9bed203bee1849f93583deaab2bb8dfa5e.
+Capacitor serves the complete public/ tree at https://localhost rather than loading
+the owner-private Sites URL. server.url and remote allowNavigation are removed.
+The download bridge now accepts only the bundled HTTPS localhost origin; the
+private Sites origin must not obtain access to native download methods.
+
+Preserved: package, signer configuration, updater/feed validation, release security
+settings, private website access policy, return-key handling and download behavior.
+No Sites deployment, source credential or website audience change is needed.
+
+The UI is available without ChatGPT authentication. With no native mailbox backend,
+the existing frontend labels its mail as demo data. This does not enable real
+Gmail/Yahoo login or synchronization: server-managed OAuth and an external browser
+return contract remain separate unfinished work. Do not put secrets in the APK or
+point Google production callbacks at the bundled localhost origin.
+
+Original local Android worker follow-up:
+1. Integrate this branch in B:\AI\MailBox\MailBox-Manager-Sites, preserving local
+   keys and pending work. Do not replace the signing identity or clear app data.
+2. Run npm ci, npm run android:sync and the existing checks/native release tests.
+   Inspect generated assets/capacitor.config.json: no server.url/allowNavigation,
+   hostname localhost, androidScheme https. All public/ assets must be included.
+3. Allocate the next unused versionCode/versionName under the existing workflow;
+   source change alone does not represent a newly built or published APK.
+4. On a device, cold-start without a ChatGPT session and without network: the
+   bundled inbox should render without navigating to the private Sites login.
+   Test back, EML export, verified updates, and denial of native bridge access from
+   a remote page. Existing remote WebView storage has a different origin; do not
+   claim data migration/retention tested without checking the installed device.
+5. Build with the existing compatible signer, verify APK config/signature/hash,
+   then publish through the existing coordinated release path and notify Dot.
+
+Cloud limitations: no existing compatible signing key, Android SDK or connected
+device is present here. This file is an actionable handoff, not proof of notification
+delivery, APK assembly, release publication, or real mailbox connectivity.

@@ -35,9 +35,13 @@ test('updater reads package signatures on both modern and Android 24-27 devices'
   assert.match(updater, /SDK_INT >= Build\.VERSION_CODES\.P[\s\S]*?info\.signingInfo[\s\S]*?info\.signatures/);
 });
 
-test('Capacitor disables WebView debugging and keeps the private HTTPS Site fixed', () => {
+test('Capacitor boots bundled assets without a private Site login and keeps debugging disabled', () => {
   const config = read('capacitor.config.ts');
-  assert.match(config, /url:\s*'https:\/\/mailbox-manager-test\.fantasy02dreamer08\.chatgpt\.site\/#inbox'/);
+  assert.match(config, /webDir:\s*'public'/);
+  assert.match(config, /hostname:\s*'localhost'/);
+  assert.match(config, /androidScheme:\s*'https'/);
+  assert.doesNotMatch(config, /\burl\s*:/);
+  assert.doesNotMatch(config, /\ballowNavigation\s*:/);
   assert.match(config, /allowMixedContent:\s*false/);
   assert.match(config, /webContentsDebuggingEnabled:\s*false/);
 });

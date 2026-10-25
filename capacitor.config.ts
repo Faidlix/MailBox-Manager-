@@ -1,5 +1,5 @@
 // Android wrapper configuration. Run `npm run android:sync` after web or native dependency changes.
-// The APK loads the owner-private MailBox Manager test Site; update `server.url` only when the cloud URL changes.
+// Load bundled public/ assets. Do not point the APK at the private Sites login gate.
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
@@ -7,9 +7,9 @@ const config: CapacitorConfig = {
   appName: 'MailBox Manager',
   webDir: 'public',
   server: {
-    url: 'https://mailbox-manager-test.fantasy02dreamer08.chatgpt.site/#inbox',
+    hostname: 'localhost',
+    androidScheme: 'https',
     cleartext: false,
-    allowNavigation: ['mailbox-manager-test.fantasy02dreamer08.chatgpt.site'],
   },
   android: {
     allowMixedContent: false,
