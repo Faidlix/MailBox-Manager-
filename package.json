@@ -12,7 +12,7 @@
     "dispatch:dry-run": "node tools/mailbox-apk-request-v2.mjs --request examples/site26-build-request.json --dry-run",
     "android:sync": "cap sync android",
     "android:debug": "npm run android:sync && cd android && gradlew.bat assembleDebug",
-    "android:release:unsigned": "npm run android:sync && cd android && gradlew.bat assembleRelease"
+    "android:release:signed": "npm run android:sync && cd android && gradlew.bat assembleRelease"
   },
   "engines": {
     "node": ">=22.5"

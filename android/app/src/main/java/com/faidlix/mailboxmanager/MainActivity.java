@@ -30,7 +30,9 @@ import com.getcapacitor.WebViewListener;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -41,7 +43,7 @@ public class MainActivity extends BridgeActivity {
     private static final int STORAGE_PERMISSION_REQUEST = 4107;
     private static final int MAX_EML_BYTES = 50 * 1024 * 1024;
 
-    private static final String INSTALL_DOWNLOAD_BRIDGE = String.format(Locale.ROOT, """
+    private static final String INSTALL_DOWNLOAD_BRIDGE_TEMPLATE = """
         (() => {
           if (location.hostname !== '%s' || window.__mailBoxAndroidDownloadBridge) return;
           window.__mailBoxAndroidDownloadBridge = true;
@@ -58,13 +60,13 @@ public class MainActivity extends BridgeActivity {
               for (let offset = 0; offset < bytes.length; offset += 32768) {
                 binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
               }
-              MailBoxAndroid.saveEml(link.download || 'message.eml', btoa(binary));
+              MailBoxAndroid.saveEml('%s', link.download || 'message.eml', btoa(binary));
             } catch (error) {
-              MailBoxAndroid.downloadFailed(String(error?.message || error));
+              MailBoxAndroid.downloadFailed('%s', String(error?.message || error));
             }
           }, true);
         })();
-        """, TRUSTED_HOST, MAX_EML_BYTES);
+        """;
 
     private static final String HANDLE_BACK = """
         (() => {
@@ -86,6 +88,8 @@ public class MainActivity extends BridgeActivity {
         """;
 
     private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
+    private final String bridgeToken = UUID.randomUUID().toString();
+    private volatile boolean trustedPageLoaded;
     private PendingEml pendingEml;
     private PendingHttpDownload pendingHttpDownload;
     private AppUpdateManager appUpdateManager;
@@ -98,11 +102,16 @@ public class MainActivity extends BridgeActivity {
         webView.setDownloadListener(this::handleHttpDownload);
         bridge.addWebViewListener(new WebViewListener() {
             @Override
+            public void onPageStarted(WebView loadedView) {
+                trustedPageLoaded = false;
+            }
+
+            @Override
             public void onPageLoaded(WebView loadedView) {
-                loadedView.evaluateJavascript(INSTALL_DOWNLOAD_BRIDGE, null);
+                trustedPageLoaded = isTrustedAppUrl(loadedView.getUrl());
+                if (trustedPageLoaded) loadedView.evaluateJavascript(createDownloadBridgeScript(), null);
             }
         });
-        webView.evaluateJavascript(INSTALL_DOWNLOAD_BRIDGE, null);
         appUpdateManager = new AppUpdateManager(this);
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -129,7 +138,7 @@ public class MainActivity extends BridgeActivity {
 
     private void handleHttpDownload(String url, String userAgent, String contentDisposition, String mimeType, long contentLength) {
         Uri uri = Uri.parse(url);
-        if (!TRUSTED_HOST.equalsIgnoreCase(uri.getHost())) {
+        if (!isTrustedAppUrl(url)) {
             Toast.makeText(this, "已阻擋非信任來源的下載", Toast.LENGTH_LONG).show();
             return;
         }
@@ -242,9 +251,33 @@ public class MainActivity extends BridgeActivity {
         return safe;
     }
 
+    static boolean isTrustedAppUrl(String url) {
+        if (url == null || url.isBlank()) return false;
+        try {
+            URI uri = URI.create(url);
+            int port = uri.getPort();
+            return "https".equalsIgnoreCase(uri.getScheme())
+                && TRUSTED_HOST.equalsIgnoreCase(uri.getHost())
+                && uri.getRawUserInfo() == null
+                && (port == -1 || port == 443);
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
+    }
+
+    private String createDownloadBridgeScript() {
+        return String.format(Locale.ROOT, INSTALL_DOWNLOAD_BRIDGE_TEMPLATE,
+            TRUSTED_HOST, MAX_EML_BYTES, bridgeToken, bridgeToken);
+    }
+
+    private boolean isTrustedBridgeCall(String token) {
+        return trustedPageLoaded && bridgeToken.equals(token);
+    }
+
     private final class EmlDownloadBridge {
         @JavascriptInterface
-        public void saveEml(String filename, String base64Data) {
+        public void saveEml(String token, String filename, String base64Data) {
+            if (!isTrustedBridgeCall(token)) return;
             try {
                 byte[] bytes = Base64.decode(base64Data, Base64.DEFAULT);
                 if (bytes.length == 0 || bytes.length > MAX_EML_BYTES) throw new IllegalArgumentException("郵件大小不符合限制");
@@ -258,12 +291,13 @@ public class MainActivity extends BridgeActivity {
                     }
                 });
             } catch (Exception error) {
-                downloadFailed(error.getMessage());
+                downloadFailed(token, error.getMessage());
             }
         }
 
         @JavascriptInterface
-        public void downloadFailed(String message) {
+        public void downloadFailed(String token, String message) {
+            if (!isTrustedBridgeCall(token)) return;
             runOnUiThread(() -> Toast.makeText(MainActivity.this, "郵件下載失敗：" + message, Toast.LENGTH_LONG).show());
         }
     }

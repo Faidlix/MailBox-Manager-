@@ -1,5 +1,7 @@
-// Android app module build configuration. Build with `npm run android:debug`;
-// versionCode/versionName identify the Site-integrated APK delivered to testers.
+// Android app module build configuration.
+// Use `npm run android:release:signed` for the distributable APK. The release build
+// deliberately reuses the existing debug signing identity so installed test builds
+// can be upgraded in place; migrate to a production key only with a planned data path.
 apply plugin: 'com.android.application'
 
 android {
@@ -13,8 +15,8 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Sites version 26: 37c369a2b10f309c3bfcf65d16613393b2bea772
-        versionCode 28
-        versionName "0.1.28"
+        versionCode 29
+        versionName "0.1.29"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -24,7 +26,9 @@ android {
     }
     buildTypes {
         release {
+            debuggable false
             minifyEnabled false
+            signingConfig signingConfigs.debug
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }

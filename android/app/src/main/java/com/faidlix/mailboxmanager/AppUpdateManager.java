@@ -169,15 +169,22 @@ final class AppUpdateManager implements AutoCloseable {
         PackageInfo info;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             info = packageManager.getPackageArchiveInfo(apk.getAbsolutePath(), PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES));
-        } else {
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             info = packageManager.getPackageArchiveInfo(apk.getAbsolutePath(), PackageManager.GET_SIGNING_CERTIFICATES);
+        } else {
+            info = packageManager.getPackageArchiveInfo(apk.getAbsolutePath(), PackageManager.GET_SIGNATURES);
         }
         if (info == null || !UpdateContract.EXPECTED_PACKAGE.equals(info.packageName)) throw new IOException("下載套件名稱不符");
         long archiveVersionCode = PackageInfoCompat.getLongVersionCode(info);
         if (archiveVersionCode != release.versionCode() || archiveVersionCode <= BuildConfig.VERSION_CODE) {
             throw new IOException("下載套件版本不符或倒退");
         }
-        Signature[] signers = info.signingInfo == null ? null : info.signingInfo.getApkContentsSigners();
+        Signature[] signers;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            signers = info.signingInfo == null ? null : info.signingInfo.getApkContentsSigners();
+        } else {
+            signers = info.signatures;
+        }
         if (signers == null || signers.length != 1) throw new IOException("下載套件簽章數量不符");
         String signer = certificateSha256(signers[0]);
         if (!UpdateContract.EXPECTED_SIGNER_SHA256.equals(signer) || !release.signingCertificateSha256().equals(signer)) {
