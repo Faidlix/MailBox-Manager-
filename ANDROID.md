@@ -1,6 +1,6 @@
 # Android APK
 
-MailBox Manager 的 Android 版是 Capacitor WebView 容器，固定載入 `capacitor.config.ts` 中的測試站網址。網站與 API 仍由雲端任務維護，Android 專案位於 `android/`。
+MailBox Manager 的 Android 版是 Capacitor WebView 容器，直接載入 APK 內的 `public/` 完整介面，不依賴私人 Sites 或 ChatGPT 登入。網站與 API 仍由雲端任務維護，Android 專案位於 `android/`。
 
 ## 建置
 
@@ -30,7 +30,7 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 - 返回鍵依序關閉對話框、篩選抽屜、信件操作選單、信件詳情，最後才離開 App。
 - `.eml` 會儲存到系統下載資料夾；Android 10 以上不要求儲存權限。
 - Android 9 以下會在第一次下載時要求寫入下載資料夾權限。
-- Blob 下載橋接只在 `mailbox-manager-test.fantasy02dreamer08.chatgpt.site` 啟用，檔名強制為 `.eml`，單檔上限 50 MB。
+- Blob 下載橋接只在 APK 內建的 `https://localhost` 來源啟用，檔名強制為 `.eml`，單檔上限 50 MB。
 - JavaScript 下載橋接只在精確 HTTPS 主機頁面載入完成後啟用，且每次 App 執行使用不可預測 token 驗證呼叫；頁面開始切換時立即停用。
 - WebView 停用偵錯、HTTP 明文與 mixed content；App 備份及 Android 12+ 裝置轉移均明確停用。
 - FileProvider 只分享 App 私有 cache 內的 `verified-updates/`，不再暴露外部儲存空間或整個 cache。
@@ -47,18 +47,18 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 https://faidlix.github.io/Web/mailbox-manager/downloads/release.json
 ```
 
-目前版本為 `0.1.29`（versionCode 29）：
+目前版本為 `0.1.30`（versionCode 30）：
 
 ```text
-B:\AI\MailBox\MailBox-Manager-APK\mailbox-manager-0.1.29-site27-release.apk
-SHA-256: 211bbe1e24d4b7ace96dc88ecbf9b4c883322e0dc1ba8fe73c330c25825d73b3
+B:\AI\MailBox\MailBox-Manager-APK\mailbox-manager-0.1.30-bundled-release.apk
+SHA-256: cf6fd540d5f0159062db402d95df24bab54b7fc9dbadcbc1ea62729d05e4d8a1
 Signer SHA-256: 5f74b5df9e4c21fdbb590e39a807111578aa22cb0286558d0d6d1721174d0a12
 ```
 
-App 固定載入私有 Site 版本 27，來源 commit `e8144f63e17ab05036aaa74a189eb879b145b083`；0.1.29 僅更新 Android 原生容器安全設定，沒有重新部署私有 Site。第一次從沒有原生更新器的舊版升級時，可用相同簽章覆蓋安裝：
+App 直接載入 APK 內的完整介面，冷啟動不需要私人 Sites 或 ChatGPT 登入；只有連結真實 Gmail／Yahoo 信箱時才需要各服務的授權流程。既有遠端 WebView 資料屬於不同 origin，尚未在實機驗證資料移轉。第一次從舊版升級時，可用相同簽章覆蓋安裝：
 
 ```powershell
-adb install -r B:\AI\MailBox\MailBox-Manager-APK\mailbox-manager-0.1.29-site27-release.apk
+adb install -r B:\AI\MailBox\MailBox-Manager-APK\mailbox-manager-0.1.30-bundled-release.apk
 ```
 
 不得先解除安裝或清除資料。目前沒有連線的 Android 裝置，因此尚未完成實機覆蓋安裝、資料保留、返回鍵、`.eml` 下載及 Play Protect 驗證；不能宣稱 Google 警告成因已確認或警告已解除。Google OAuth 與 App 返回流程也仍需網站/API 正式啟用後才能驗收。
