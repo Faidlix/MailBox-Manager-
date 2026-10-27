@@ -67,6 +67,33 @@ test('round 06: trashing mail removes it from the inbox but retains it in trash'
   assert.equal(a.q('.message-row[data-id="2"]'), null);
 }));
 
+test('selected mail is trashed directly while selecting every result keeps cleanup options', () => scenario(async (a) => {
+  const first = a.q('.message-select');
+  const firstId = Number(first.closest('.message-row').dataset.id);
+  const directActionMenu = a.q('#trash-options');
+  first.checked = true;
+  first.dispatchEvent(new a.w.Event('change'));
+  await a.click('#bulk-trash');
+  await until(() => a.run(`demoMessages.find((m) => m.id === ${firstId}).folder`) === 'TRASH');
+  assert.equal(directActionMenu.hidden, true);
+  await until(() => a.q('#trash-options'));
+
+  await a.run('selectedMessageIds.clear(); messages.forEach((m) => selectedMessageIds.add(m.id)); renderMessageList()');
+  const countBefore = a.run('demoMessages.filter((m) => m.folder === "TRASH").length');
+  await a.click('#bulk-trash');
+  assert.equal(a.q('#trash-options').hidden, false);
+  assert.equal(a.run('demoMessages.filter((m) => m.folder === "TRASH").length'), countBefore);
+}));
+
+test('message detail trash button moves mail without a confirmation prompt', () => scenario(async (a) => {
+  let confirmCalls = 0;
+  a.w.confirm = () => { confirmCalls += 1; return false; };
+  await a.open(3);
+  await a.click('[data-action="trash"]');
+  await until(() => a.run('demoMessages.find((m) => m.id === 3).folder') === 'TRASH');
+  assert.equal(confirmCalls, 0);
+}));
+
 test('round 07: archive keeps mail retrievable through its dedicated filter', () => scenario(async (a) => {
   await a.run("api('/api/messages/1/archive', {method:'PATCH'})");
   const archived = await a.run("api('/api/messages?state=archive')");

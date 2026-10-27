@@ -51,6 +51,7 @@ test('share starts during the click and restores the button on permission denial
     const context = vm.createContext({
       exportSession: { readyType: 'eml', readyFiles: ['file'], message: { subject: '信件' } },
       document: { querySelector: () => ({ addEventListener: (_type, callback) => { handler = callback; } }) },
+      window: {},
       navigator: { canShare: () => true, share: () => { called = true; return Promise.reject(Object.assign(new Error('Permission denied'), { name })); } },
       messageDownloadDialog: { close() {} }, showNotice: (message) => notices.push(message),
     });
@@ -65,6 +66,32 @@ test('share starts during the click and restores the button on permission denial
     assert.equal(button.textContent, '分享');
     assert.equal(notices.length, name === 'AbortError' ? 0 : 1);
   }
+});
+
+test('Android app sharing uses the native share sheet before the browser API', async () => {
+  const snippet = source.slice(source.indexOf("document.querySelector('#message-share').addEventListener"), source.indexOf('const closeHelp'));
+  let handler;
+  let nativeFiles;
+  let nativeTitle;
+  let browserCalled = false;
+  let closed = false;
+  const button = { disabled: false, textContent: '分享', dataset: {} };
+  Object.defineProperty(button, 'innerHTML', { get() { return this.textContent; }, set(value) { this.textContent = value; } });
+  const context = vm.createContext({
+    exportSession: { readyType: 'pdf', readyFiles: ['pdf-file'], message: { subject: '月結單' } },
+    document: { querySelector: () => ({ addEventListener: (_type, callback) => { handler = callback; } }) },
+    window: { mailBoxNativeShare: async (files, title) => { nativeFiles = files; nativeTitle = title; } },
+    navigator: { canShare: () => true, share: async () => { browserCalled = true; } },
+    messageDownloadDialog: { close() { closed = true; } }, showNotice() {},
+  });
+  vm.runInContext(source.slice(source.indexOf('function setBusy('), source.indexOf('async function loadAccounts')), context);
+  vm.runInContext(snippet, context);
+  await handler({ currentTarget: button });
+  assert.deepEqual(nativeFiles, ['pdf-file']);
+  assert.equal(nativeTitle, '月結單');
+  assert.equal(browserCalled, false);
+  assert.equal(closed, true);
+  assert.equal(button.disabled, false);
 });
 
 test('opening unread mail updates API, local collections and list immediately', async () => {

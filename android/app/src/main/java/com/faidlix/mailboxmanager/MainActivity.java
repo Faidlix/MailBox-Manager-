@@ -6,9 +6,11 @@
 package com.faidlix.mailboxmanager;
 
 import android.Manifest;
+import android.content.ClipData;
 import android.app.DownloadManager;
 import android.content.ContentValues;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -25,16 +27,20 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.WebViewListener;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class MainActivity extends BridgeActivity {
 
@@ -42,6 +48,7 @@ public class MainActivity extends BridgeActivity {
     private static final String EML_MIME_TYPE = "message/rfc822";
     private static final int STORAGE_PERMISSION_REQUEST = 4107;
     private static final int MAX_EML_BYTES = 50 * 1024 * 1024;
+    private static final int MAX_SHARED_FILES = 50;
 
     private static final String INSTALL_DOWNLOAD_BRIDGE_TEMPLATE = """
         (() => {
@@ -65,6 +72,22 @@ public class MainActivity extends BridgeActivity {
               MailBoxAndroid.downloadFailed('%s', String(error?.message || error));
             }
           }, true);
+          window.mailBoxNativeShare = async (files, title) => {
+            if (!Array.isArray(files) || !files.length || files.length > %d) throw new Error('分享檔案數量不符合限制');
+            let totalBytes = 0;
+            const payload = [];
+            for (const file of files) {
+              totalBytes += Number(file.size || 0);
+              if (totalBytes > %d) throw new Error('分享檔案超過 50 MB 上限');
+              const bytes = new Uint8Array(await file.arrayBuffer());
+              let binary = '';
+              for (let offset = 0; offset < bytes.length; offset += 32768) {
+                binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+              }
+              payload.push({ name: file.name || 'mailbox-file', type: file.type || 'application/octet-stream', data: btoa(binary) });
+            }
+            MailBoxAndroid.shareFiles('%s', String(title || ''), JSON.stringify(payload));
+          };
         })();
         """;
 
@@ -251,6 +274,20 @@ public class MainActivity extends BridgeActivity {
         return safe;
     }
 
+    static String normalizeSharedFilename(String filename) {
+        String safe = filename == null ? "mailbox-file" : filename.replaceAll("[\\\\/:*?\"<>|\\r\\n]", "_").trim();
+        if (safe.isEmpty() || ".".equals(safe) || "..".equals(safe)) safe = "mailbox-file";
+        if (safe.length() > 120) safe = safe.substring(0, 120);
+        return safe;
+    }
+
+    static String normalizeMimeType(String mimeType) {
+        if (mimeType == null || !mimeType.matches("[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*")) {
+            return "application/octet-stream";
+        }
+        return mimeType.toLowerCase(Locale.ROOT);
+    }
+
     static boolean isTrustedAppUrl(String url) {
         if (url == null || url.isBlank()) return false;
         try {
@@ -267,7 +304,8 @@ public class MainActivity extends BridgeActivity {
 
     private String createDownloadBridgeScript() {
         return String.format(Locale.ROOT, INSTALL_DOWNLOAD_BRIDGE_TEMPLATE,
-            TRUSTED_HOST, MAX_EML_BYTES, bridgeToken, bridgeToken);
+            TRUSTED_HOST, MAX_EML_BYTES, bridgeToken, bridgeToken,
+            MAX_SHARED_FILES, MAX_EML_BYTES, bridgeToken);
     }
 
     private boolean isTrustedBridgeCall(String token) {
@@ -300,6 +338,69 @@ public class MainActivity extends BridgeActivity {
             if (!isTrustedBridgeCall(token)) return;
             runOnUiThread(() -> Toast.makeText(MainActivity.this, "郵件下載失敗：" + message, Toast.LENGTH_LONG).show());
         }
+
+        @JavascriptInterface
+        public void shareFiles(String token, String title, String jsonPayload) {
+            if (!isTrustedBridgeCall(token)) return;
+            downloadExecutor.execute(() -> {
+                try {
+                    JSONArray payload = new JSONArray(jsonPayload);
+                    if (payload.length() == 0 || payload.length() > MAX_SHARED_FILES) {
+                        throw new IllegalArgumentException("分享檔案數量不符合限制");
+                    }
+                    File directory = new File(getCacheDir(), "shared-exports");
+                    if (!directory.exists() && !directory.mkdirs()) throw new IllegalStateException("無法建立分享暫存資料夾");
+                    File[] staleFiles = directory.listFiles();
+                    if (staleFiles != null) for (File staleFile : staleFiles) if (staleFile.isFile()) staleFile.delete();
+
+                    ArrayList<Uri> uris = new ArrayList<>();
+                    ArrayList<String> mimeTypes = new ArrayList<>();
+                    int totalBytes = 0;
+                    for (int index = 0; index < payload.length(); index++) {
+                        JSONObject item = payload.getJSONObject(index);
+                        byte[] bytes = Base64.decode(item.getString("data"), Base64.DEFAULT);
+                        totalBytes += bytes.length;
+                        if (bytes.length == 0 || totalBytes > MAX_EML_BYTES) throw new IllegalArgumentException("分享檔案大小不符合限制");
+                        String filename = normalizeSharedFilename(item.optString("name", "mailbox-file"));
+                        String mimeType = normalizeMimeType(item.optString("type", "application/octet-stream"));
+                        File target = uniqueSharedFile(directory, filename);
+                        try (OutputStream output = new FileOutputStream(target)) { output.write(bytes); }
+                        uris.add(FileProvider.getUriForFile(MainActivity.this, BuildConfig.APPLICATION_ID + ".fileprovider", target));
+                        mimeTypes.add(mimeType);
+                    }
+                    runOnUiThread(() -> openShareSheet(title, uris, mimeTypes));
+                } catch (Exception error) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "分享檔案失敗：" + error.getMessage(), Toast.LENGTH_LONG).show());
+                }
+            });
+        }
+    }
+
+    private static File uniqueSharedFile(File directory, String filename) {
+        File candidate = new File(directory, filename);
+        if (!candidate.exists()) return candidate;
+        int dot = filename.lastIndexOf('.');
+        String stem = dot > 0 ? filename.substring(0, dot) : filename;
+        String extension = dot > 0 ? filename.substring(dot) : "";
+        for (int index = 2; index < 1000; index++) {
+            candidate = new File(directory, stem + " (" + index + ")" + extension);
+            if (!candidate.exists()) return candidate;
+        }
+        return new File(directory, stem + "-" + System.currentTimeMillis() + extension);
+    }
+
+    private void openShareSheet(String title, ArrayList<Uri> uris, ArrayList<String> mimeTypes) {
+        Intent shareIntent = new Intent(uris.size() == 1 ? Intent.ACTION_SEND : Intent.ACTION_SEND_MULTIPLE);
+        String commonType = mimeTypes.stream().allMatch(mimeTypes.get(0)::equals) ? mimeTypes.get(0) : "*/*";
+        shareIntent.setType(commonType);
+        shareIntent.putExtra(Intent.EXTRA_SUBJECT, title == null ? "" : title);
+        if (uris.size() == 1) shareIntent.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+        else shareIntent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+        ClipData clipData = new ClipData("MailBox Manager", new String[] { commonType }, new ClipData.Item(uris.get(0)));
+        for (int index = 1; index < uris.size(); index++) clipData.addItem(new ClipData.Item(uris.get(index)));
+        shareIntent.setClipData(clipData);
+        shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivity(Intent.createChooser(shareIntent, "分享到其他應用程式"));
     }
 
     @Override

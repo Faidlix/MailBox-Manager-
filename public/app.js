@@ -600,7 +600,17 @@ function bindBulkToolbar() {
   const moveTrigger = document.querySelector('#bulk-move');
   const trashTrigger = document.querySelector('#bulk-trash');
   moveTrigger.addEventListener('click', () => toggleToolbarMenu(moveMenu, trashMenu, moveTrigger));
-  trashTrigger.addEventListener('click', () => toggleToolbarMenu(trashMenu, moveMenu, trashTrigger));
+  trashTrigger.addEventListener('click', () => {
+    const selected = messages.filter((message) => selectedMessageIds.has(message.id));
+    const allResultsSelected = messages.length > 0 && selected.length === messages.length;
+    if (!allResultsSelected) {
+      trashMenu.hidden = true;
+      moveMenu.hidden = true;
+      void moveSelectedMessages('TRASH');
+      return;
+    }
+    toggleToolbarMenu(trashMenu, moveMenu, trashTrigger);
+  });
   moveMenu.querySelectorAll('[data-bulk-category]').forEach((button) => button.addEventListener('click', () => { moveMenu.hidden = true; categorizeSelectedMessages(button.dataset.bulkCategory); }));
   trashMenu.querySelectorAll('[data-trash-mode]').forEach((button) => button.addEventListener('click', () => {
     trashMenu.hidden = true;
@@ -1199,7 +1209,6 @@ async function openMessage(id) {
   });
   detail.querySelector('[data-action="download"]').addEventListener('click', () => openMessageDownloadDialog(message));
   detail.querySelector('[data-action="trash"]').addEventListener('click', async (event) => {
-    if (!confirm('確定將這封郵件移至遠端信箱的垃圾桶？')) return;
     const button = event.currentTarget;
     setBusy(button, true);
     try { await api(`/api/messages/${id}`, { method: 'DELETE' }); showNotice('郵件已移至垃圾桶'); await renderRoute(); }
@@ -1451,9 +1460,13 @@ document.querySelector('#message-share').addEventListener('click', async (event)
   const button = event.currentTarget;
   try {
     const files = session.readyFiles;
-    if (!navigator.share || !navigator.canShare?.({ files })) throw new Error('這個瀏覽器不支援檔案分享，請改用下載後再分享');
     setBusy(button, true, '分享中…');
-    await navigator.share({ title: session.message.subject, files });
+    if (typeof window.mailBoxNativeShare === 'function') {
+      await window.mailBoxNativeShare(files, session.message.subject);
+    } else {
+      if (!navigator.share || !navigator.canShare?.({ files })) throw new Error('這個瀏覽器不支援檔案分享，請改用下載後再分享');
+      await navigator.share({ title: session.message.subject, files });
+    }
     messageDownloadDialog.close();
   } catch (error) {
     if (error.name !== 'AbortError') showNotice(error.name === 'NotAllowedError' || /permission denied/i.test(error.message) ? '瀏覽器未允許分享。請使用外部 Chrome 開啟，或先下載檔案後分享。' : error.message, true);

@@ -11,8 +11,8 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 
 test('release APK is non-debuggable, same-signer compatible, and versioned', () => {
   const gradle = read('android/app/build.gradle');
-  assert.match(gradle, /versionCode\s+30\b/);
-  assert.match(gradle, /versionName\s+"0\.1\.30"/);
+  assert.match(gradle, /versionCode\s+31\b/);
+  assert.match(gradle, /versionName\s+"0\.1\.31"/);
   assert.match(gradle, /release\s*\{[\s\S]*?debuggable\s+false/);
   assert.match(gradle, /release\s*\{[\s\S]*?signingConfig\s+signingConfigs\.debug/);
 });
@@ -46,11 +46,17 @@ test('Capacitor boots bundled assets without a private Site login and keeps debu
   assert.match(config, /webContentsDebuggingEnabled:\s*false/);
 });
 
-test('FileProvider exposes only the verified updater cache directory', () => {
+test('FileProvider exposes only the verified updater and mail-share cache directories', () => {
   const paths = read('android/app/src/main/res/xml/file_paths.xml');
   const updater = read('android/app/src/main/java/com/faidlix/mailboxmanager/AppUpdateManager.java');
+  const activity = read('android/app/src/main/java/com/faidlix/mailboxmanager/MainActivity.java');
   assert.doesNotMatch(paths, /<external-path\b/);
   assert.doesNotMatch(paths, /path="\."/);
   assert.match(paths, /<cache-path\s+name="verified_updates"\s+path="verified-updates\/"\s*\/>/);
+  assert.match(paths, /<cache-path\s+name="shared_exports"\s+path="shared-exports\/"\s*\/>/);
   assert.match(updater, /getCacheDir\(\),\s*"verified-updates"/);
+  assert.match(activity, /getCacheDir\(\),\s*"shared-exports"/);
+  assert.match(activity, /Intent\.ACTION_SEND_MULTIPLE/);
+  assert.match(activity, /Intent\.FLAG_GRANT_READ_URI_PERMISSION/);
+  assert.match(activity, /MailBoxAndroid\.shareFiles/);
 });

@@ -28,6 +28,14 @@ public class MainActivityTest {
     }
 
     @Test
+    public void sanitizesSharedFilenamesAndMimeTypes() {
+        assertEquals("invoice_2026.pdf", MainActivity.normalizeSharedFilename("invoice/2026.pdf"));
+        assertEquals("mailbox-file", MainActivity.normalizeSharedFilename(".."));
+        assertEquals("image/png", MainActivity.normalizeMimeType("IMAGE/PNG"));
+        assertEquals("application/octet-stream", MainActivity.normalizeMimeType("text/plain\r\nInjected: value"));
+    }
+
+    @Test
     public void acceptsOnlyTheBundledHttpsOrigin() {
         assertTrue(MainActivity.isTrustedAppUrl("https://localhost/#inbox"));
         assertTrue(MainActivity.isTrustedAppUrl("https://localhost:443/message.eml"));

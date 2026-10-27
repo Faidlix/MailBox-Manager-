@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Only verified update APKs in AppUpdateManager's private cache are shared. -->
+    <!-- Each exported capability receives its own narrow app-private cache directory. -->
     <cache-path name="verified_updates" path="verified-updates/" />
+    <!-- Exported mail files are staged here only long enough for Android's share sheet. -->
+    <cache-path name="shared_exports" path="shared-exports/" />
 </paths>
