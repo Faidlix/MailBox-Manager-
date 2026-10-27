@@ -1,3 +1,5 @@
+// MailBox Manager browser and bundled Android UI entry point.
+// Loaded by public/index.html; run `npm test` to verify its interactions.
 import { createMessagePdf } from './message-export.js';
 
 const view = document.querySelector('#view');

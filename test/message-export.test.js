@@ -1,3 +1,5 @@
+// Verifies MailBox EML, PDF, and share export behavior.
+// Run with `npm test` or `node --test test/message-export.test.js`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

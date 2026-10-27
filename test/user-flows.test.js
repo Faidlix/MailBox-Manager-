@@ -1,3 +1,5 @@
+// Exercises MailBox interface actions in a simulated browser DOM.
+// Run with `npm test` or `node --test test/user-flows.test.js`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { boot, tick, until } from './helpers/mailbox-dom.js';

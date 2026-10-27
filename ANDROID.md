@@ -33,7 +33,7 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 - Blob 下載橋接只在 APK 內建的 `https://localhost` 來源啟用，檔名強制為 `.eml`，單檔上限 50 MB。
 - JavaScript 下載橋接只在精確 HTTPS 主機頁面載入完成後啟用，且每次 App 執行使用不可預測 token 驗證呼叫；頁面開始切換時立即停用。
 - WebView 停用偵錯、HTTP 明文與 mixed content；App 備份及 Android 12+ 裝置轉移均明確停用。
-- FileProvider 只分享 App 私有 cache 內的 `verified-updates/`，不再暴露外部儲存空間或整個 cache。
+- FileProvider 僅分享 App 私有 cache 內的 `verified-updates/` 與 `shared-exports/`，不暴露外部儲存空間或整個 cache。
 - App 啟動或回到前景時，最多每 6 小時檢查一次固定的公開更新清單；失敗後至少等待 30 分鐘，不建立背景服務或排程。
 - 更新只接受 `faidlix.github.io/Web/mailbox-manager/downloads/` 下的 HTTPS APK，並驗證 metadata 欄位、版本碼、大小、SHA-256、套件名稱及既有簽章。
 - 驗證通過後只會開啟 Android 系統安裝器，仍需使用者確認，且不會自動修改「允許此來源」設定。
@@ -47,11 +47,11 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 https://faidlix.github.io/Web/mailbox-manager/downloads/release.json
 ```
 
-目前開發版本為 `0.1.31`（versionCode 31）；正式 APK 必須沿用既有簽章建置：
+目前版本為 `0.1.31`（versionCode 31），正式 APK 沿用既有測試簽章：
 
 ```text
 B:\AI\MailBox\MailBox-Manager-APK\mailbox-manager-0.1.31-bundled-release.apk
-SHA-256: cf6fd540d5f0159062db402d95df24bab54b7fc9dbadcbc1ea62729d05e4d8a1
+SHA-256: 2d5470473b2915eb7c02d3352a5492944ea77e1c87dfc0fa78ab68b8958e582a
 Signer SHA-256: 5f74b5df9e4c21fdbb590e39a807111578aa22cb0286558d0d6d1721174d0a12
 ```
 
@@ -61,4 +61,4 @@ App 直接載入 APK 內的完整介面，冷啟動不需要私人 Sites 或 Cha
 adb install -r B:\AI\MailBox\MailBox-Manager-APK\mailbox-manager-0.1.31-bundled-release.apk
 ```
 
-不得先解除安裝或清除資料。目前沒有連線的 Android 裝置，因此尚未完成實機覆蓋安裝、資料保留、返回鍵、`.eml` 下載及 Play Protect 驗證；不能宣稱 Google 警告成因已確認或警告已解除。Google OAuth 與 App 返回流程也仍需網站/API 正式啟用後才能驗收。
+不得先解除安裝或清除資料。Android 34 模擬器已驗證從 0.1.30 直接覆蓋安裝、離線載入、系統分享面板、返回及 `.eml` 儲存至 Downloads。目前沒有連線的 Android 實機，因此尚未完成手機上的資料保留、分享與下載及 Play Protect 驗證；不能宣稱 Google 警告成因已確認或警告已解除。Google OAuth 與 App 返回流程也仍需網站/API 正式啟用後才能驗收。
