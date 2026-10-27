@@ -69,6 +69,18 @@ public class ResumableUpdateDownloaderTest {
         assertFalse(corrupt.exists());
     }
 
+    @Test
+    public void permanentClientErrorDeletesPartialWithoutRetryingTheSameBytes() throws Exception {
+        File partial = temporaryFolder.newFile("missing.part");
+        Files.write(partial.toPath(), "old bytes".getBytes());
+        FakeConnection connection = new FakeConnection(new URL("https://example.test/missing.apk"),
+            new byte[0], HttpURLConnection.HTTP_NOT_FOUND, null);
+        assertThrows(ResumableUpdateDownloader.PermanentDownloadException.class,
+            () -> ResumableUpdateDownloader.download(connection.getURL().toString(), 20,
+                "0".repeat(64), partial, "application/octet-stream", ignored -> connection));
+        assertFalse(partial.exists());
+    }
+
     private static String sha256(byte[] body) throws Exception {
         return SecureUpdateDownloader.toHex(MessageDigest.getInstance("SHA-256").digest(body));
     }

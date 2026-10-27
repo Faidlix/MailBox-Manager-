@@ -89,7 +89,12 @@ public final class AppUpdateWorker extends Worker {
                     APK_MIME + ", application/octet-stream", url -> (HttpURLConnection) url.openConnection());
                 candidate = fullPartial;
             }
-            AppUpdateManager.verifyArchive(getApplicationContext(), candidate, release);
+            try {
+                AppUpdateManager.verifyArchive(getApplicationContext(), candidate, release);
+            } catch (IOException error) {
+                delete(candidate);
+                throw new ResumableUpdateDownloader.PermanentDownloadException("更新 APK 套件驗證失敗", error);
+            }
             AppUpdateManager.moveVerified(candidate, verified);
             markPendingInstall(release);
             showReadyToInstall(verified, release);

@@ -14,6 +14,7 @@ final class ResumableUpdateDownloader {
     interface ConnectionFactory { HttpURLConnection open(URL url) throws IOException; }
     static final class PermanentDownloadException extends IOException {
         PermanentDownloadException(String message) { super(message); }
+        PermanentDownloadException(String message, Throwable cause) { super(message, cause); }
     }
 
     private static final Pattern CONTENT_RANGE = Pattern.compile("^bytes ([0-9]+)-([0-9]+)/([0-9]+)$");
@@ -41,7 +42,11 @@ final class ResumableUpdateDownloader {
             int status = connection.getResponseCode();
             boolean append = existing > 0 && status == HttpURLConnection.HTTP_PARTIAL;
             if (existing > 0 && status == HttpURLConnection.HTTP_OK) { existing = 0; append = false; }
-            else if (status != HttpURLConnection.HTTP_OK && status != HttpURLConnection.HTTP_PARTIAL) {
+            else if (status >= 400 && status < 500
+                && status != HttpURLConnection.HTTP_CLIENT_TIMEOUT
+                && status != 429) {
+                throw permanent(destination, "更新檔 HTTP 狀態：" + status);
+            } else if (status != HttpURLConnection.HTTP_OK && status != HttpURLConnection.HTTP_PARTIAL) {
                 throw new IOException("更新檔 HTTP 狀態：" + status);
             }
             if (append) {
