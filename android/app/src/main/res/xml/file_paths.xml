@@ -2,6 +2,7 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Each exported capability receives its own narrow app-private cache directory. -->
     <cache-path name="verified_updates" path="verified-updates/" />
+    <files-path name="persistent_verified_updates" path="verified-updates/" />
     <!-- Exported mail files are staged here only long enough for Android's share sheet. -->
     <cache-path name="shared_exports" path="shared-exports/" />
 </paths>

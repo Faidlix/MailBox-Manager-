@@ -6,6 +6,7 @@
 package com.faidlix.mailboxmanager;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,18 +23,30 @@ final class SecureUpdateDownloader {
 
     static void downloadVerified(UpdateContract.ReleaseMetadata release, File destination,
         ConnectionFactory connectionFactory) throws IOException {
+        downloadVerifiedArtifact(release.downloadUrl(), release.sizeBytes(), release.sha256(), destination,
+            "application/vnd.android.package-archive, application/octet-stream", connectionFactory);
+    }
+
+    static void downloadVerifiedPatch(UpdateContract.PatchMetadata patch, File destination,
+        ConnectionFactory connectionFactory) throws IOException {
+        downloadVerifiedArtifact(patch.downloadUrl(), patch.sizeBytes(), patch.sha256(), destination,
+            "application/octet-stream", connectionFactory);
+    }
+
+    private static void downloadVerifiedArtifact(String downloadUrl, long expectedSize, String expectedSha256,
+        File destination, String accept, ConnectionFactory connectionFactory) throws IOException {
         HttpURLConnection connection = null;
         boolean completed = false;
         try {
-            connection = connectionFactory.open(new URL(release.downloadUrl()));
+            connection = connectionFactory.open(new URL(downloadUrl));
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(15_000);
             connection.setReadTimeout(30_000);
-            connection.setRequestProperty("Accept", "application/vnd.android.package-archive, application/octet-stream");
+            connection.setRequestProperty("Accept", accept);
             int status = connection.getResponseCode();
-            if (status != HttpURLConnection.HTTP_OK) throw new IOException("APK HTTP 狀態：" + status);
+            if (status != HttpURLConnection.HTTP_OK) throw new IOException("更新檔 HTTP 狀態：" + status);
             long declaredLength = connection.getContentLengthLong();
-            if (declaredLength >= 0 && declaredLength != release.sizeBytes()) throw new IOException("APK Content-Length 不符");
+            if (declaredLength >= 0 && declaredLength != expectedSize) throw new IOException("更新檔 Content-Length 不符");
             File parent = destination.getParentFile();
             if (parent == null || (!parent.exists() && !parent.mkdirs())) throw new IOException("無法建立更新暫存資料夾");
             MessageDigest digest = sha256Digest();
@@ -44,20 +57,35 @@ final class SecureUpdateDownloader {
                 while ((read = input.read(buffer)) != -1) {
                     if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("更新下載已中斷");
                     total += read;
-                    if (total > release.sizeBytes()) throw new IOException("APK 大小超過 metadata");
+                    if (total > expectedSize) throw new IOException("更新檔大小超過 metadata");
                     digest.update(buffer, 0, read);
                     output.write(buffer, 0, read);
                 }
                 output.getFD().sync();
             }
-            if (total != release.sizeBytes()) throw new IOException("APK 下載大小不符");
+            if (total != expectedSize) throw new IOException("更新檔下載大小不符");
             String actualHash = toHex(digest.digest());
-            if (!actualHash.equals(release.sha256())) throw new IOException("APK SHA-256 不符");
+            if (!actualHash.equals(expectedSha256)) throw new IOException("更新檔 SHA-256 不符");
             completed = true;
         } finally {
             if (connection != null) connection.disconnect();
             if (!completed && destination.exists() && !destination.delete()) destination.deleteOnExit();
         }
+    }
+
+    static String sha256(File file) throws IOException {
+        MessageDigest digest = sha256Digest();
+        try (InputStream input = new FileInputStream(file)) {
+            byte[] buffer = new byte[32 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
+        }
+        return toHex(digest.digest());
+    }
+
+    static void verifyFile(File file, long expectedSize, String expectedSha256) throws IOException {
+        if (!file.isFile() || file.length() != expectedSize) throw new IOException("更新檔大小不符");
+        if (!sha256(file).equals(expectedSha256)) throw new IOException("更新檔 SHA-256 不符");
     }
 
     private static MessageDigest sha256Digest() {

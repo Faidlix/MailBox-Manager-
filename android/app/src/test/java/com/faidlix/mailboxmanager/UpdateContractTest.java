@@ -7,6 +7,7 @@ package com.faidlix.mailboxmanager;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
 
 import org.junit.Test;
 
@@ -31,6 +32,22 @@ public class UpdateContractTest {
         assertFalse(UpdateContract.isAllowedApkUrl("https://example.com/mailbox-manager-0.1.27.apk"));
         assertFalse(UpdateContract.isAllowedApkUrl(allowed + "?redirect=1"));
         assertFalse(UpdateContract.isAllowedApkUrl("https://faidlix.github.io/Web/other/update.apk"));
+    }
+
+    @Test
+    public void acceptsOnlyPinnedDeltaPathAndMatchingSource() {
+        String apkUrl = "https://faidlix.github.io/Web/mailbox-manager/downloads/mailbox-manager-0.1.32-bundled-release.apk";
+        UpdateContract.ReleaseMetadata target = new UpdateContract.ReleaseMetadata(
+            1, "0.1.32", 32, UpdateContract.EXPECTED_PACKAGE, apkUrl, "a".repeat(64), 4096,
+            UpdateContract.EXPECTED_SIGNER_SHA256);
+        String patchUrl = "https://faidlix.github.io/Web/mailbox-manager/downloads/mailbox-manager-0.1.31-to-0.1.32.mbd";
+        UpdateContract.PatchMetadata patch = new UpdateContract.PatchMetadata(31, "b".repeat(64), patchUrl, "c".repeat(64), 1024);
+        assertTrue(UpdateContract.isAllowedPatchUrl(patchUrl));
+        assertFalse(UpdateContract.isAllowedPatchUrl(patchUrl + "?download=1"));
+        assertFalse(UpdateContract.isAllowedPatchUrl("https://example.com/update.mbd"));
+        assertEquals(patchUrl, UpdateContract.validatePatch(patch, 31, "b".repeat(64), target).downloadUrl());
+        assertThrows(IllegalArgumentException.class, () -> UpdateContract.validatePatch(patch, 30, "b".repeat(64), target));
+        assertThrows(IllegalArgumentException.class, () -> UpdateContract.validatePatch(patch, 31, "d".repeat(64), target));
     }
 
     @Test

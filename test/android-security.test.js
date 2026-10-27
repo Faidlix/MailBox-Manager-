@@ -11,8 +11,8 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 
 test('release APK is non-debuggable, same-signer compatible, and versioned', () => {
   const gradle = read('android/app/build.gradle');
-  assert.match(gradle, /versionCode\s+31\b/);
-  assert.match(gradle, /versionName\s+"0\.1\.31"/);
+  assert.match(gradle, /versionCode\s+32\b/);
+  assert.match(gradle, /versionName\s+"0\.1\.32"/);
   assert.match(gradle, /release\s*\{[\s\S]*?debuggable\s+false/);
   assert.match(gradle, /release\s*\{[\s\S]*?signingConfig\s+signingConfigs\.debug/);
 });
@@ -25,8 +25,30 @@ test('backup and cleartext are disabled while verified updates remain explicit',
   assert.match(manifest, /android:fullBackupContent="false"/);
   assert.match(manifest, /android:usesCleartextTraffic="false"/);
   assert.match(manifest, /android\.permission\.REQUEST_INSTALL_PACKAGES/);
+  assert.match(manifest, /android\.permission\.POST_NOTIFICATIONS/);
+  assert.match(manifest, /android\.permission\.FOREGROUND_SERVICE_DATA_SYNC/);
+  assert.match(manifest, /androidx\.work\.impl\.foreground\.SystemForegroundService[\s\S]*?android:foregroundServiceType="dataSync"/);
   assert.match(extractionRules, /<cloud-backup>[\s\S]*?<exclude domain="database" path="\." \/>/);
   assert.match(extractionRules, /<device-transfer>[\s\S]*?<exclude domain="sharedpref" path="\." \/>/);
+});
+
+test('updates use persistent background work, resumable partials and post-install cleanup', () => {
+  const gradle = read('android/app/build.gradle');
+  const manager = read('android/app/src/main/java/com/faidlix/mailboxmanager/AppUpdateManager.java');
+  const worker = read('android/app/src/main/java/com/faidlix/mailboxmanager/AppUpdateWorker.java');
+  const resumable = read('android/app/src/main/java/com/faidlix/mailboxmanager/ResumableUpdateDownloader.java');
+  assert.match(gradle, /androidx\.work:work-runtime/);
+  assert.match(manager, /enqueueUniqueWork\(UPDATE_WORK_NAME, ExistingWorkPolicy\.KEEP/);
+  assert.match(manager, /moveTaskToBack\(true\)/);
+  assert.match(worker, /Result\.retry\(\)/);
+  assert.match(worker, /getFilesDir\(\),\s*"verified-updates"/);
+  assert.match(worker, /BinaryDelta\.apply/);
+  assert.match(worker, /showReadyToInstall/);
+  assert.match(resumable, /setRequestProperty\("Range", "bytes=" \+ existing \+ "-"\)/);
+  assert.match(manager, /BuildConfig\.VERSION_CODE < pendingVersion/);
+  assert.match(manager, /showPendingInstallIfReady\(\)/);
+  assert.match(manager, /setTitle\("更新已下載完成"\)/);
+  assert.match(manager, /installerIntent\(activity, verified\)/);
 });
 
 test('updater reads package signatures on both modern and Android 24-27 devices', () => {
@@ -49,12 +71,14 @@ test('Capacitor boots bundled assets without a private Site login and keeps debu
 test('FileProvider exposes only the verified updater and mail-share cache directories', () => {
   const paths = read('android/app/src/main/res/xml/file_paths.xml');
   const updater = read('android/app/src/main/java/com/faidlix/mailboxmanager/AppUpdateManager.java');
+  const worker = read('android/app/src/main/java/com/faidlix/mailboxmanager/AppUpdateWorker.java');
   const activity = read('android/app/src/main/java/com/faidlix/mailboxmanager/MainActivity.java');
   assert.doesNotMatch(paths, /<external-path\b/);
   assert.doesNotMatch(paths, /path="\."/);
   assert.match(paths, /<cache-path\s+name="verified_updates"\s+path="verified-updates\/"\s*\/>/);
+  assert.match(paths, /<files-path\s+name="persistent_verified_updates"\s+path="verified-updates\/"\s*\/>/);
   assert.match(paths, /<cache-path\s+name="shared_exports"\s+path="shared-exports\/"\s*\/>/);
-  assert.match(updater, /getCacheDir\(\),\s*"verified-updates"/);
+  assert.match(worker, /getFilesDir\(\),\s*"verified-updates"/);
   assert.match(activity, /getCacheDir\(\),\s*"shared-exports"/);
   assert.match(activity, /Intent\.ACTION_SEND_MULTIPLE/);
   assert.match(activity, /Intent\.FLAG_GRANT_READ_URI_PERMISSION/);

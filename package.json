@@ -8,11 +8,12 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test",
-    "check": "node --check src/server.js && node --check src/google-oauth-flow.js && node --check src/google-account.js && node --check public/app.js && node --check public/message-export.js && node --check tools/mailbox-apk-request-v2.mjs",
+    "check": "node --check src/server.js && node --check src/google-oauth-flow.js && node --check src/google-account.js && node --check public/app.js && node --check public/message-export.js && node --check tools/mailbox-apk-request-v2.mjs && node --check tools/create-mailbox-delta.mjs",
     "dispatch:dry-run": "node tools/mailbox-apk-request-v2.mjs --request examples/site26-build-request.json --dry-run",
     "android:sync": "cap sync android",
     "android:debug": "npm run android:sync && cd android && gradlew.bat assembleDebug",
-    "android:release:signed": "npm run android:sync && cd android && gradlew.bat assembleRelease"
+    "android:release:signed": "npm run android:sync && cd android && gradlew.bat assembleRelease",
+    "android:delta": "node tools/create-mailbox-delta.mjs"
   },
   "engines": {
     "node": ">=22.5"

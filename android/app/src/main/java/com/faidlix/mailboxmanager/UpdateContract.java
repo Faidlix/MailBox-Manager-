@@ -12,12 +12,14 @@ import java.util.regex.Pattern;
 
 final class UpdateContract {
     static final String FEED_URL = "https://faidlix.github.io/Web/mailbox-manager/downloads/release.json";
+    static final String DELTA_FEED_URL = "https://faidlix.github.io/Web/mailbox-manager/downloads/release-deltas.json";
     static final String EXPECTED_PACKAGE = "com.faidlix.mailboxmanager";
     static final String EXPECTED_SIGNER_SHA256 = "5f74b5df9e4c21fdbb590e39a807111578aa22cb0286558d0d6d1721174d0a12";
     static final long MAX_APK_BYTES = 100L * 1024L * 1024L;
     private static final Pattern VERSION_NAME = Pattern.compile("^[0-9]+\\.[0-9]+\\.[0-9]+$");
     private static final Pattern SHA256 = Pattern.compile("^[0-9a-f]{64}$");
     private static final Pattern APK_PATH = Pattern.compile("^/Web/mailbox-manager/downloads/mailbox-manager-[A-Za-z0-9._-]+\\.apk$");
+    private static final Pattern PATCH_PATH = Pattern.compile("^/Web/mailbox-manager/downloads/mailbox-manager-[A-Za-z0-9._-]+\\.mbd$");
 
     private UpdateContract() {}
 
@@ -50,6 +52,34 @@ final class UpdateContract {
         }
     }
 
+    static PatchMetadata validatePatch(PatchMetadata patch, long installedVersionCode, String installedSha256,
+        ReleaseMetadata release) {
+        if (patch.fromVersionCode != installedVersionCode) throw new IllegalArgumentException("差分來源版本不符");
+        String fromHash = normalizeHash(patch.fromSha256);
+        if (!fromHash.equals(normalizeHash(installedSha256))) throw new IllegalArgumentException("差分來源雜湊不符");
+        if (patch.sizeBytes <= 0 || patch.sizeBytes >= release.sizeBytes || patch.sizeBytes > MAX_APK_BYTES) {
+            throw new IllegalArgumentException("差分大小不合理");
+        }
+        String patchHash = normalizeHash(patch.sha256);
+        if (!isAllowedPatchUrl(patch.downloadUrl)) throw new IllegalArgumentException("差分網址不在允許範圍");
+        return new PatchMetadata(patch.fromVersionCode, fromHash, patch.downloadUrl, patchHash, patch.sizeBytes);
+    }
+
+    static boolean isAllowedPatchUrl(String value) {
+        try {
+            URI uri = URI.create(value);
+            return "https".equalsIgnoreCase(uri.getScheme())
+                && "faidlix.github.io".equalsIgnoreCase(uri.getHost())
+                && uri.getPort() == -1
+                && uri.getRawUserInfo() == null
+                && uri.getRawQuery() == null
+                && uri.getRawFragment() == null
+                && PATCH_PATH.matcher(uri.getRawPath()).matches();
+        } catch (RuntimeException error) {
+            return false;
+        }
+    }
+
     static String normalizeHash(String value) {
         String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
         if (!SHA256.matcher(normalized).matches()) throw new IllegalArgumentException("SHA-256 格式錯誤");
@@ -58,6 +88,8 @@ final class UpdateContract {
 
     record ReleaseMetadata(int schemaVersion, String versionName, long versionCode, String packageName,
         String downloadUrl, String sha256, long sizeBytes, String signingCertificateSha256) {}
+
+    record PatchMetadata(long fromVersionCode, String fromSha256, String downloadUrl, String sha256, long sizeBytes) {}
 
     static final class SingleFlightGate {
         private final AtomicBoolean running = new AtomicBoolean(false);

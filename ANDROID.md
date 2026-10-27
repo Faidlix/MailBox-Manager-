@@ -33,8 +33,10 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 - Blob 下載橋接只在 APK 內建的 `https://localhost` 來源啟用，檔名強制為 `.eml`，單檔上限 50 MB。
 - JavaScript 下載橋接只在精確 HTTPS 主機頁面載入完成後啟用，且每次 App 執行使用不可預測 token 驗證呼叫；頁面開始切換時立即停用。
 - WebView 停用偵錯、HTTP 明文與 mixed content；App 備份及 Android 12+ 裝置轉移均明確停用。
-- FileProvider 僅分享 App 私有 cache 內的 `verified-updates/` 與 `shared-exports/`，不暴露外部儲存空間或整個 cache。
-- App 啟動或回到前景時，最多每 6 小時檢查一次固定的公開更新清單；失敗後至少等待 30 分鐘，不建立背景服務或排程。
+- FileProvider 僅分享 App 私有的 `verified-updates/` 與 cache 內的 `shared-exports/`，不暴露外部儲存空間或整個資料目錄。
+- App 啟動或回到前景時，最多每 6 小時檢查一次固定的公開更新清單；不建立定期背景輪詢。使用者按下下載後才建立單次 WorkManager 背景工作並將 App 縮到背景。
+- 背景更新會保留 `.part` 暫存並用 HTTP Range 接續下載；網路失敗採退避重試，不會每次從零下載。驗證完成的 APK 保留到新版首次啟動確認安裝成功後才移除。
+- 新版優先使用精確綁定來源版本與舊 APK SHA-256 的 `.mbd` 差分；重建後仍須通過完整 APK 大小、SHA-256、套件名稱與簽章驗證。沒有可用差分時才下載完整 APK。
 - 更新只接受 `faidlix.github.io/Web/mailbox-manager/downloads/` 下的 HTTPS APK，並驗證 metadata 欄位、版本碼、大小、SHA-256、套件名稱及既有簽章。
 - 驗證通過後只會開啟 Android 系統安裝器，仍需使用者確認，且不會自動修改「允許此來源」設定。
 - Google OAuth 必須由網站/API 改成外部瀏覽器加 App Link 或自訂 Scheme callback；目前的 localhost callback 無法在 APK 正式使用。
@@ -47,7 +49,13 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 https://faidlix.github.io/Web/mailbox-manager/downloads/release.json
 ```
 
-目前版本為 `0.1.31`（versionCode 31），正式 APK 沿用既有測試簽章：
+差分清單固定為 `release-deltas.json`，保持 `release.json` 原格式，讓不支援差分的舊版仍可正常更新。建立差分檔：
+
+```powershell
+npm run android:delta -- old.apk new.apk mailbox-manager-old-to-new.mbd
+```
+
+目前開發版本為 `0.1.32`（versionCode 32）。目前已公開版本仍為 `0.1.31`（versionCode 31），沿用既有測試簽章：
 
 ```text
 B:\AI\MailBox\MailBox-Manager-APK\mailbox-manager-0.1.31-bundled-release.apk
