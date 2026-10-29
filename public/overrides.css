@@ -73,7 +73,8 @@
 .inline-compose-form label{display:grid;gap:5px;font-size:.78rem;font-weight:800}
 .provider-connect-card{align-content:start}
 .provider-connect-card h3{font-size:1.35rem;margin:0}
-.provider-external{width:100%}
+.provider-title-row{display:flex;align-items:center;justify-content:flex-start;gap:12px}
+.provider-link{flex:0 0 auto;min-width:0;padding:10px 18px;white-space:nowrap}
 .filter-drawer-toggle,.filter-drawer-backdrop{display:none!important}
 .drawer-heading{display:none!important}
 .select-all-wrap{position:relative;flex:0 0 auto}

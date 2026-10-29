@@ -106,9 +106,11 @@ test('round 07: archive keeps mail retrievable through its dedicated filter', ()
   await a.submit('#rule-form'); await until(() => a.all('.rule-card').length === initialRules + 1);
   await a.click('.rule-card button'); await until(() => a.all('.rule-card').length === initialRules);
   await a.click('.inline-panel-close'); await until(() => !a.q('#settings-dialog').open);
-  await a.click('#account-settings'); await until(() => a.q('#gmail-form'));
-  assert.equal(a.q('#gmail-form button').disabled, true, 'unconfigured OAuth must not pretend to connect');
-  assert.equal(a.q('#gmail-form [name="clientSecret"]'), null);
+  await a.click('#account-settings'); await until(() => a.q('#gmail-authorize'));
+  assert.equal(a.q('#gmail-authorize').textContent, '連結');
+  assert.equal(a.q('#yahoo-authorize').textContent, '連結');
+  assert.equal(a.q('[name="clientSecret"]'), null);
+  assert.equal(a.q('[name="password"]'), null);
   await a.click('.sync-one'); await until(() => a.q('#notice').textContent.includes('已同步'));
   await a.click('.delete-account'); await until(() => a.q('#notice').textContent.includes('示範帳號'));
 }));

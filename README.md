@@ -39,11 +39,7 @@ Gmail 的 `gmail.modify` 屬敏感或受限制權限。若只供自己使用，�
 
 ## Yahoo 設定
 
-1. 在 Yahoo 帳號安全頁建立應用程式密碼。
-2. Email 填完整 Yahoo 地址，密碼填應用程式密碼。
-3. 預設設定為 `imap.mail.yahoo.com:993` 與 `smtp.mail.yahoo.com:465`，兩者皆使用 TLS。
-
-其他郵件服務可改填服務商提供的 IMAP 與 SMTP 主機。
+使用者只需在「信箱帳號」的 Yahoo 標題旁按「連結」，介面不收集 Yahoo Email 或應用程式密碼。目前按鈕開啟 Yahoo 官方登入頁；若要在登入後自動返回並同步信件，仍須註冊 Yahoo OAuth 用戶端，並由安全後端完成 callback、Token 交換與保存。不得把 Yahoo Client Secret 放入前端或 APK。
 
 ## 資料與安全
 
