@@ -62,6 +62,7 @@ npm run android:delta -- old.apk new.apk mailbox-manager-old-to-new.mbd
 
 ```text
 B:\AI\MailBox\MailBox-Manager-APK\mailbox-manager-0.1.32-oauth-release.apk
+SHA-256: 2b7e8f0f109c9fb2b56420ee849fb80d14b4bca63054f51eeda0ee4b8e437dde
 Signer SHA-256: 5f74b5df9e4c21fdbb590e39a807111578aa22cb0286558d0d6d1721174d0a12
 ```
 
