@@ -17,6 +17,18 @@ test('release APK is non-debuggable, same-signer compatible, and versioned', () 
   assert.match(gradle, /release\s*\{[\s\S]*?signingConfig\s+signingConfigs\.debug/);
 });
 
+test('Google OAuth leaves WebView and returns only through exact app callbacks', () => {
+  const manifest = read('android/app/src/main/AndroidManifest.xml');
+  const activity = read('android/app/src/main/java/com/faidlix/mailboxmanager/MainActivity.java');
+  const app = read('public/app.js');
+  assert.match(manifest, /android:autoVerify="true"[\s\S]*?android:host="mailbox-manager-test\.fantasy02dreamer08\.chatgpt\.site"[\s\S]*?android:path="\/app\/oauth\/callback"/);
+  assert.match(manifest, /android:scheme="mailboxmanager"[\s\S]*?android:host="oauth"[\s\S]*?android:path="\/callback"/);
+  assert.match(activity, /Intent\.ACTION_VIEW[\s\S]*?OAUTH_START_URL/);
+  assert.match(activity, /postUrl\(OAUTH_COMPLETE_URL/);
+  assert.match(activity, /MailBoxAndroid\.startGoogleOAuth/);
+  assert.match(app, /globalThis\.mailBoxNativeOAuth/);
+});
+
 test('backup and cleartext are disabled while verified updates remain explicit', () => {
   const manifest = read('android/app/src/main/AndroidManifest.xml');
   const extractionRules = read('android/app/src/main/res/xml/data_extraction_rules.xml');

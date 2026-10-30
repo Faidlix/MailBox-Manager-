@@ -1,7 +1,8 @@
 /*
  * Android entry point for the bundled MailBox Manager interface.
  * Build with `npm run android:debug`; Capacitor serves bundled public/ assets locally.
- * It handles Android Back, trusted .eml downloads, verified updates, and legacy storage permission.
+ * It handles Android Back, external-browser OAuth callbacks, trusted downloads,
+ * verified updates, native sharing, and legacy storage permission.
  */
 package com.faidlix.mailboxmanager;
 
@@ -11,6 +12,7 @@ import android.app.DownloadManager;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -34,17 +36,31 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class MainActivity extends BridgeActivity {
 
-    private static final String TRUSTED_HOST = "localhost";
+    private static final String LOCAL_HOST = "localhost";
+    private static final String CLOUD_HOST = "mailbox-manager-test.fantasy02dreamer08.chatgpt.site";
+    private static final String CLOUD_ORIGIN = "https://" + CLOUD_HOST;
+    private static final String OAUTH_START_URL = CLOUD_ORIGIN + "/api/oauth/google/start?client=android";
+    private static final String OAUTH_COMPLETE_URL = CLOUD_ORIGIN + "/api/oauth/google/native/complete";
+    private static final String CLOUD_INBOX_URL = CLOUD_ORIGIN + "/#inbox";
+    private static final String APP_PREFERENCES = "mailbox_manager";
+    private static final String CLOUD_SESSION_ENABLED = "cloud_session_enabled";
+    private static final String OAUTH_APP_LINK_PATH = "/app/oauth/callback";
+    private static final String OAUTH_SCHEME = "mailboxmanager";
+    private static final String OAUTH_SCHEME_HOST = "oauth";
+    private static final String OAUTH_SCHEME_PATH = "/callback";
+    private static final Pattern OAUTH_CODE_PATTERN = Pattern.compile("^[A-Za-z0-9._~-]{20,2048}$");
     private static final String EML_MIME_TYPE = "message/rfc822";
     private static final int STORAGE_PERMISSION_REQUEST = 4107;
     private static final int MAX_EML_BYTES = 50 * 1024 * 1024;
@@ -52,7 +68,7 @@ public class MainActivity extends BridgeActivity {
 
     private static final String INSTALL_DOWNLOAD_BRIDGE_TEMPLATE = """
         (() => {
-          if (location.hostname !== '%s' || window.__mailBoxAndroidDownloadBridge) return;
+          if (!['%s', '%s'].includes(location.hostname) || window.__mailBoxAndroidDownloadBridge) return;
           window.__mailBoxAndroidDownloadBridge = true;
           document.addEventListener('click', async (event) => {
             const link = event.target.closest?.('a[download]');
@@ -88,6 +104,7 @@ public class MainActivity extends BridgeActivity {
             }
             MailBoxAndroid.shareFiles('%s', String(title || ''), JSON.stringify(payload));
           };
+          window.mailBoxNativeOAuth = () => MailBoxAndroid.startGoogleOAuth('%s');
         })();
         """;
 
@@ -136,6 +153,11 @@ public class MainActivity extends BridgeActivity {
             }
         });
         appUpdateManager = new AppUpdateManager(this);
+        boolean handlingOAuth = handleOAuthIntent(getIntent(), webView);
+        SharedPreferences preferences = getSharedPreferences(APP_PREFERENCES, MODE_PRIVATE);
+        if (!handlingOAuth && preferences.getBoolean(CLOUD_SESSION_ENABLED, false)) {
+            webView.loadUrl(CLOUD_INBOX_URL);
+        }
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -149,6 +171,51 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         if (appUpdateManager != null) appUpdateManager.checkIfDue();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleOAuthIntent(intent, bridge.getWebView());
+    }
+
+    private boolean handleOAuthIntent(Intent intent, WebView webView) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return false;
+        Uri callback = intent.getData();
+        if (callback == null || !isTrustedOAuthCallback(callback.toString())) return false;
+        intent.setData(null);
+        String error = callback.getQueryParameter("error");
+        if (error != null && !error.isBlank()) {
+            Toast.makeText(this, "Google 登入未完成", Toast.LENGTH_LONG).show();
+            return true;
+        }
+        String code = callback.getQueryParameter("code");
+        if (code == null || !OAUTH_CODE_PATTERN.matcher(code).matches()) {
+            Toast.makeText(this, "Google 登入回傳資料無效", Toast.LENGTH_LONG).show();
+            return true;
+        }
+        getSharedPreferences(APP_PREFERENCES, MODE_PRIVATE).edit().putBoolean(CLOUD_SESSION_ENABLED, true).apply();
+        String form = "code=" + code;
+        webView.postUrl(OAUTH_COMPLETE_URL, form.getBytes(StandardCharsets.UTF_8));
+        return true;
+    }
+
+    static boolean isTrustedOAuthCallback(String rawCallback) {
+        if (rawCallback == null || rawCallback.isBlank()) return false;
+        try {
+            URI callback = URI.create(rawCallback);
+            if (callback.getRawUserInfo() != null || callback.getPort() != -1 || callback.getRawFragment() != null) return false;
+            boolean appLink = "https".equalsIgnoreCase(callback.getScheme())
+                && CLOUD_HOST.equalsIgnoreCase(callback.getHost())
+                && OAUTH_APP_LINK_PATH.equals(callback.getPath());
+            boolean customScheme = OAUTH_SCHEME.equalsIgnoreCase(callback.getScheme())
+                && OAUTH_SCHEME_HOST.equalsIgnoreCase(callback.getHost())
+                && OAUTH_SCHEME_PATH.equals(callback.getPath());
+            return appLink || customScheme;
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
     }
 
     private void handleAndroidBack(WebView webView) {
@@ -295,7 +362,7 @@ public class MainActivity extends BridgeActivity {
             URI uri = URI.create(url);
             int port = uri.getPort();
             return "https".equalsIgnoreCase(uri.getScheme())
-                && TRUSTED_HOST.equalsIgnoreCase(uri.getHost())
+                && (LOCAL_HOST.equalsIgnoreCase(uri.getHost()) || CLOUD_HOST.equalsIgnoreCase(uri.getHost()))
                 && uri.getRawUserInfo() == null
                 && (port == -1 || port == 443);
         } catch (IllegalArgumentException error) {
@@ -305,8 +372,8 @@ public class MainActivity extends BridgeActivity {
 
     private String createDownloadBridgeScript() {
         return String.format(Locale.ROOT, INSTALL_DOWNLOAD_BRIDGE_TEMPLATE,
-            TRUSTED_HOST, MAX_EML_BYTES, bridgeToken, bridgeToken,
-            MAX_SHARED_FILES, MAX_EML_BYTES, bridgeToken);
+            LOCAL_HOST, CLOUD_HOST, MAX_EML_BYTES, bridgeToken, bridgeToken,
+            MAX_SHARED_FILES, MAX_EML_BYTES, bridgeToken, bridgeToken);
     }
 
     private boolean isTrustedBridgeCall(String token) {
@@ -314,6 +381,20 @@ public class MainActivity extends BridgeActivity {
     }
 
     private final class EmlDownloadBridge {
+        @JavascriptInterface
+        public void startGoogleOAuth(String token) {
+            if (!isTrustedBridgeCall(token)) return;
+            runOnUiThread(() -> {
+                try {
+                    Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(OAUTH_START_URL));
+                    browser.addCategory(Intent.CATEGORY_BROWSABLE);
+                    startActivity(browser);
+                } catch (Exception error) {
+                    Toast.makeText(MainActivity.this, "無法開啟 Google 登入頁面", Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
         @JavascriptInterface
         public void saveEml(String token, String filename, String base64Data) {
             if (!isTrustedBridgeCall(token)) return;

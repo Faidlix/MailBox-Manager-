@@ -1264,11 +1264,14 @@ async function openCompose(draft = {}) {
 async function mountAccounts(target, embedded = false) {
   setComposeVisibility(false);
   await loadAccounts();
-  let googleReady = false;
-  try {
-    const response = await fetch('/api/oauth/google/config', { cache: 'no-store' });
-    if (response.ok && response.headers.get('content-type')?.includes('application/json')) googleReady = (await response.json()).configured === true;
-  } catch { /* The static demo and an unconfigured server cannot start real OAuth. */ }
+  const nativeOAuth = globalThis.Capacitor?.isNativePlatform?.() === true;
+  let googleReady = nativeOAuth;
+  if (!nativeOAuth) {
+    try {
+      const response = await fetch('/api/oauth/google/config', { cache: 'no-store' });
+      if (response.ok && response.headers.get('content-type')?.includes('application/json')) googleReady = (await response.json()).configured === true;
+    } catch { /* The static demo and an unconfigured server cannot start real OAuth. */ }
+  }
   target.innerHTML = `<div class="inline-settings">
     ${embedded ? '<div class="inline-panel-head"><div><h2>信箱帳號設定</h2><p>管理現有帳號或新增 Gmail、Yahoo 與一般信箱。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}
     ${quickFolderSection('accounts')}
@@ -1285,7 +1288,12 @@ async function mountAccounts(target, embedded = false) {
     event.preventDefault();
     if (!googleReady) return;
     if (globalThis.Capacitor?.isNativePlatform?.()) {
-      showNotice('此 App 版本尚未支援 Google 登入跳轉，請先使用網頁版連結 Gmail。', true);
+      if (typeof globalThis.mailBoxNativeOAuth === 'function') {
+        globalThis.mailBoxNativeOAuth();
+        showNotice('請在外部瀏覽器完成 Google 登入，完成後會自動回到 App');
+      } else {
+        showNotice('App 登入元件尚未就緒，請重新啟動 App 後再試。', true);
+      }
       return;
     }
     // Top-level navigation keeps the callback binding cookie in the same browser.

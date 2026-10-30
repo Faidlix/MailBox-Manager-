@@ -35,6 +35,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Google OAuth returns through the verified hosted callback. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="mailbox-manager-test.fantasy02dreamer08.chatgpt.site"
+                    android:path="/app/oauth/callback" />
+            </intent-filter>
+
+            <!-- One-time-code fallback while App Link verification is unavailable. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="mailboxmanager"
+                    android:host="oauth"
+                    android:path="/callback" />
+            </intent-filter>
+
         </activity>
 
         <provider
