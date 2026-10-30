@@ -110,6 +110,11 @@ public class MainActivity extends BridgeActivity {
 
     private static final String HANDLE_BACK = """
         (() => {
+          const active = document.activeElement;
+          if (active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) {
+            active.blur();
+            return true;
+          }
           const openDialog = [...document.querySelectorAll('dialog[open]')].pop();
           if (openDialog) { openDialog.close(); return true; }
           if (document.body.classList.contains('filters-open')) {

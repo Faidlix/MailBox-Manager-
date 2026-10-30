@@ -29,6 +29,11 @@ test('Google OAuth leaves WebView and returns only through exact app callbacks',
   assert.match(app, /globalThis\.mailBoxNativeOAuth/);
 });
 
+test('Android Back dismisses focused form controls before navigating', () => {
+  const activity = read('android/app/src/main/java/com/faidlix/mailboxmanager/MainActivity.java');
+  assert.match(activity, /document\.activeElement[\s\S]*?\['INPUT', 'TEXTAREA', 'SELECT'\][\s\S]*?active\.blur\(\)[\s\S]*?return true/);
+});
+
 test('backup and cleartext are disabled while verified updates remain explicit', () => {
   const manifest = read('android/app/src/main/AndroidManifest.xml');
   const extractionRules = read('android/app/src/main/res/xml/data_extraction_rules.xml');
