@@ -165,7 +165,7 @@ const demoApi = async (url, options = {}) => {
   if (url === '/api/rules' && method === 'POST') { const rule = { id: Date.now(), ...JSON.parse(options.body), enabled: 1 }; demoRules.unshift(rule); return { id: rule.id }; }
   const ruleMatch = parsed.pathname.match(/^\/api\/rules\/(\d+)$/);
   if (ruleMatch && method === 'DELETE') { demoRules = demoRules.filter((rule) => rule.id !== Number(ruleMatch[1])); return null; }
-  if (url.includes('/auth-url') || url === '/api/accounts/imap') throw new Error('測試站不會連接真實帳號；正式版需在安全後端設定 OAuth 或應用程式密碼。');
+  if (url.includes('/auth-url') || url === '/api/accounts/imap') throw new Error('測試站不會連接真實帳號；正式版需由安全後端完成 OAuth 授權。');
   if (/^\/api\/accounts\/\d+$/.test(parsed.pathname) && method === 'DELETE') throw new Error('示範帳號保留供介面測試。');
   return { ok: true };
 };
@@ -269,7 +269,7 @@ function quickFolderSection(type) {
   const folders = quickFolders[type];
   if (!folders.length) return '';
   const isAccount = type === 'accounts';
-  return `<section class="quick-folder-section"><h3>${isAccount ? '待設定的信箱資料夾' : '分類資料夾'}</h3><div class="quick-folder-list">${folders.map((folder) => `<div class="quick-folder-item"><span>${escapeHtml(folder.name)}</span><button class="danger quick-folder-delete" type="button" data-folder-type="${type}" data-folder-id="${escapeHtml(folder.id)}" aria-label="刪除 ${escapeHtml(folder.name)}">刪除</button></div>`).join('')}</div><p class="quick-folder-note">${isAccount ? '使用下方的 Gmail 或 IMAP 表單完成連線。' : '使用下方規則，把符合條件的郵件歸入這些分類。'}</p></section>`;
+  return `<section class="quick-folder-section"><h3>${isAccount ? '待設定的信箱資料夾' : '分類資料夾'}</h3><div class="quick-folder-list">${folders.map((folder) => `<div class="quick-folder-item"><span>${escapeHtml(folder.name)}</span><button class="danger quick-folder-delete" type="button" data-folder-type="${type}" data-folder-id="${escapeHtml(folder.id)}" aria-label="刪除 ${escapeHtml(folder.name)}">刪除</button></div>`).join('')}</div><p class="quick-folder-note">${isAccount ? '使用下方的 Gmail 或 Yahoo 官方登入頁開始授權。' : '使用下方規則，把符合條件的郵件歸入這些分類。'}</p></section>`;
 }
 
 function bindQuickFolderDeletes(target, refresh) {
@@ -1261,17 +1261,25 @@ async function openCompose(draft = {}) {
   if (!composeDialog.open) composeDialog.showModal();
 }
 
+function startGoogleAuthorization() {
+  const bridge = globalThis.mailBoxNativeOAuth;
+  const isNative = Boolean(globalThis.Capacitor?.isNativePlatform?.());
+  if (isNative && bridge) {
+    const launch = typeof bridge === 'function'
+      ? bridge
+      : bridge.startGoogleOAuth || bridge.startGoogleLogin || bridge.startGoogle || bridge.openGoogleOAuth;
+    if (typeof launch === 'function') {
+      launch.call(bridge);
+      showNotice('已開啟 Google 官方登入頁');
+      return;
+    }
+  }
+  globalThis.location.assign('/api/oauth/google/start');
+}
+
 async function mountAccounts(target, embedded = false) {
   setComposeVisibility(false);
   await loadAccounts();
-  const nativeOAuth = globalThis.Capacitor?.isNativePlatform?.() === true;
-  let googleReady = nativeOAuth;
-  if (!nativeOAuth) {
-    try {
-      const response = await fetch('/api/oauth/google/config', { cache: 'no-store' });
-      if (response.ok && response.headers.get('content-type')?.includes('application/json')) googleReady = (await response.json()).configured === true;
-    } catch { /* The static demo and an unconfigured server cannot start real OAuth. */ }
-  }
   target.innerHTML = `<div class="inline-settings">
     ${embedded ? '<div class="inline-panel-head"><div><h2>信箱帳號設定</h2><p>管理現有帳號或新增 Gmail、Yahoo 與一般信箱。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}
     ${quickFolderSection('accounts')}
@@ -1279,33 +1287,17 @@ async function mountAccounts(target, embedded = false) {
       <div class="account-card card"><div class="account-icon">${account.provider === 'gmail' ? 'G' : 'IM'}</div><div class="account-info"><b>${escapeHtml(account.email)}</b><small>${account.provider === 'gmail' ? 'Google OAuth' : 'IMAP / SMTP'} · ${account.last_synced_at ? `上次同步 ${formatDate(account.last_synced_at)}` : '尚未同步'}</small></div><button class="ghost sync-one" data-id="${account.id}">同步</button><button class="danger delete-account" data-id="${account.id}">移除</button></div>`).join('') : '<div class="card loading">尚未加入任何信箱。</div>'}</div>
     <h2 class="section-title" style="margin-top:32px">新增信箱</h2>
     <div class="split">
-      <form id="gmail-form" class="form-card card provider-connect-card"><h3>Gmail</h3><p>使用 Google 帳號登入並授權連結信箱，不需要輸入 Gmail 密碼或應用程式憑證。</p>${googleReady ? '' : '<p class="quick-folder-note">Google 登入服務尚未啟用，請稍後再試。</p>'}<div class="form-actions"><button class="primary provider-connect" type="submit" ${googleReady ? '' : 'disabled'}>使用 Google 登入 ↗</button></div></form>
-      <form id="imap-form" class="form-card card provider-connect-card"><h3>Yahoo</h3><p>先到 Yahoo 官方帳號安全頁建立應用程式密碼，再回來完成連線。</p><button id="yahoo-authorize" class="ghost provider-external" type="button">開啟 Yahoo 授權頁 ↗</button><label>Yahoo Email<input name="email" type="email" required></label><label>應用程式密碼<input name="password" type="password" required autocomplete="off"></label><input name="imapHost" type="hidden" value="imap.mail.yahoo.com"><input name="smtpHost" type="hidden" value="smtp.mail.yahoo.com"><input name="imapPort" type="hidden" value="993"><input name="smtpPort" type="hidden" value="465"><div class="form-actions"><button class="primary provider-connect" type="submit">連結 Yahoo</button></div></form>
+      <section class="form-card card provider-connect-card" aria-labelledby="gmail-provider-title"><div class="provider-title-row"><h3 id="gmail-provider-title">Gmail</h3><button id="gmail-authorize" class="primary provider-link" type="button">連結</button></div><p>使用 Google 帳號登入官方頁面，不需要在 MailBox Manager 輸入 Gmail 密碼。</p></section>
+      <section class="form-card card provider-connect-card" aria-labelledby="yahoo-provider-title"><div class="provider-title-row"><h3 id="yahoo-provider-title">Yahoo</h3><button id="yahoo-authorize" class="primary provider-link" type="button">連結</button></div><p>使用 Yahoo 帳號登入官方頁面，不需要在 MailBox Manager 輸入帳號或應用程式密碼。</p></section>
     </div></div>`;
   target.querySelector('.inline-panel-close')?.addEventListener('click', () => target.closest('dialog') ? target.closest('dialog').close() : renderRoute());
   bindQuickFolderDeletes(target, () => mountAccounts(target, embedded));
-  target.querySelector('#gmail-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (!googleReady) return;
-    if (globalThis.Capacitor?.isNativePlatform?.()) {
-      if (typeof globalThis.mailBoxNativeOAuth === 'function') {
-        globalThis.mailBoxNativeOAuth();
-        showNotice('請在外部瀏覽器完成 Google 登入，完成後會自動回到 App');
-      } else {
-        showNotice('App 登入元件尚未就緒，請重新啟動 App 後再試。', true);
-      }
-      return;
-    }
-    // Top-level navigation keeps the callback binding cookie in the same browser.
-    // Do not create a state in a WebView and then move it to an external browser.
-    location.assign('/api/oauth/google/start');
+  target.querySelector('#gmail-authorize').addEventListener('click', () => {
+    startGoogleAuthorization();
   });
-  target.querySelector('#yahoo-authorize').addEventListener('click', () => { window.open('https://login.yahoo.com/account/security', '_blank', 'noopener'); showNotice('請在 Yahoo 官方頁面建立應用程式密碼，再回到此頁完成連線'); });
-  target.querySelector('#imap-form').addEventListener('submit', async (event) => {
-    event.preventDefault(); const button = event.currentTarget.querySelector('button'); setBusy(button, true);
-    try { const data = Object.fromEntries(new FormData(event.currentTarget)); await api('/api/accounts/imap', { method: 'POST', body: JSON.stringify(data) }); showNotice('信箱已加入'); await mountAccounts(target, embedded); }
-    catch (error) { showNotice(error.message, true); }
-    finally { setBusy(button, false); }
+  target.querySelector('#yahoo-authorize').addEventListener('click', () => {
+    window.open('https://login.yahoo.com/', '_blank', 'noopener');
+    showNotice('已開啟 Yahoo 官方登入頁');
   });
   target.querySelectorAll('.sync-one').forEach((button) => button.addEventListener('click', async () => {
     setBusy(button, true, '同步中…'); try { const result = await api(`/api/accounts/${button.dataset.id}/sync`, { method: 'POST' }); showNotice(`已同步 ${result.count} 封郵件`); await mountAccounts(target, embedded); } catch (error) { showNotice(error.message, true); setBusy(button, false); }
@@ -1339,7 +1331,7 @@ function renderHelp() {
   title.textContent = '說明與免責聲明';
   view.innerHTML = `<div class="help">
     <section class="card"><h2>開始使用</h2><ol><li>到「信箱帳號」加入 Gmail 或 Yahoo/IMAP 帳號。</li><li>按「同步全部」下載最近 1,000 封收件匣郵件的本機索引。</li><li>建立分類規則，下一次同步時自動分類。</li><li>刪除、已讀狀態與寄信會直接操作所選的遠端信箱。</li></ol><p>程式只監聽 <span class="code">127.0.0.1</span>。資料庫及加密金鑰位於專案的 <span class="code">data/</span> 目錄，已被 Git 忽略。</p></section>
-    <section class="card"><h2>帳號安全</h2><p>Gmail 採用 OAuth 2.0，程式不會取得 Gmail 密碼。Yahoo 或一般 IMAP 帳號應使用服務商提供的應用程式密碼。請勿將 <span class="code">data/</span>、OAuth Client Secret 或應用程式密碼提交到 Git。</p><p>郵件中的 HTML 會在禁止腳本的隔離框架內顯示。開啟外部連結或下載附件前，仍應確認寄件者及網址。</p></section>
+    <section class="card"><h2>帳號安全</h2><p>Gmail 與 Yahoo 皆從服務商官方登入頁開始授權；MailBox Manager 不會要求你在新增信箱畫面輸入郵件密碼。請勿將 <span class="code">data/</span> 或 OAuth Client Secret 提交到 Git。</p><p>郵件中的 HTML 會在禁止腳本的隔離框架內顯示。開啟外部連結或下載附件前，仍應確認寄件者及網址。</p></section>
     <section class="card disclaimer"><h2>免責聲明</h2><p>MailBox Manager 是個人郵件管理工具，以「現狀」提供。使用者須自行確認 Google、Yahoo 及其他郵件服務商的服務條款、API 政策與帳號安全要求。</p><p>同步、標記已讀、寄送及刪除等操作可能直接變更遠端信箱。使用前請備份重要郵件並先以測試帳號驗證設定。開發者不保證郵件資料、同步結果、通知時效或第三方服務持續可用，亦不對誤刪、未送達、資料遺失、帳號限制、憑證外洩或任何直接與間接損失負責。</p><p>本工具不提供法律、財務或資安保證。若用於工作、受管制資料或多人環境，應先由組織管理者與專業人員完成權限、保存、隱私及合規審查。</p></section>
     <section class="card"><h2>目前範圍</h2><p>第一版支援 Gmail、Yahoo 與標準 IMAP/SMTP。LINE Bot、背景排程、附件管理及 Microsoft Graph 預留為後續功能。</p></section>
   </div>`;
