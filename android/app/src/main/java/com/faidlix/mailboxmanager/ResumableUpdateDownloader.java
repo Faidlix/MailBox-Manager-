@@ -12,6 +12,7 @@ import java.util.regex.Pattern;
 
 final class ResumableUpdateDownloader {
     interface ConnectionFactory { HttpURLConnection open(URL url) throws IOException; }
+    interface ProgressListener { void onProgress(long downloadedBytes, long totalBytes); }
     static final class PermanentDownloadException extends IOException {
         PermanentDownloadException(String message) { super(message); }
         PermanentDownloadException(String message, Throwable cause) { super(message, cause); }
@@ -23,12 +24,20 @@ final class ResumableUpdateDownloader {
 
     static void download(String url, long expectedSize, String expectedSha256, File destination, String accept,
         ConnectionFactory connections) throws IOException {
+        download(url, expectedSize, expectedSha256, destination, accept, connections, (downloaded, total) -> {});
+    }
+
+    static void download(String url, long expectedSize, String expectedSha256, File destination, String accept,
+        ConnectionFactory connections, ProgressListener progress) throws IOException {
         File parent = destination.getParentFile();
         if (parent == null || (!parent.exists() && !parent.mkdirs())) throw new IOException("無法建立更新暫存資料夾");
         long existing = destination.isFile() ? destination.length() : 0;
         if (existing > expectedSize) { delete(destination); existing = 0; }
         if (existing == expectedSize && existing > 0) {
-            if (SecureUpdateDownloader.sha256(destination).equals(expectedSha256)) return;
+            if (SecureUpdateDownloader.sha256(destination).equals(expectedSha256)) {
+                progress.onProgress(existing, expectedSize);
+                return;
+            }
             delete(destination); existing = 0;
         }
 
@@ -60,6 +69,7 @@ final class ResumableUpdateDownloader {
             }
 
             long total = existing;
+            progress.onProgress(total, expectedSize);
             try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(destination, append)) {
                 byte[] buffer = new byte[32 * 1024];
                 int read;
@@ -68,6 +78,7 @@ final class ResumableUpdateDownloader {
                     total += read;
                     if (total > expectedSize) throw permanent(destination, "更新檔大小超過 metadata");
                     output.write(buffer, 0, read);
+                    progress.onProgress(total, expectedSize);
                 }
                 output.getFD().sync();
             }
