@@ -35,7 +35,9 @@ import com.getcapacitor.WebViewListener;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Locale;
@@ -49,11 +51,11 @@ import org.json.JSONObject;
 public class MainActivity extends BridgeActivity {
 
     private static final String LOCAL_HOST = "localhost";
-    private static final String CLOUD_HOST = "mailbox-manager-test.fantasy02dreamer08.chatgpt.site";
+    private static final String CLOUD_HOST = "mailbox-manager-oauth.fantasy02dreamer08.chatgpt.site";
     private static final String CLOUD_ORIGIN = "https://" + CLOUD_HOST;
     private static final String OAUTH_START_URL = CLOUD_ORIGIN + "/api/oauth/google/start?client=android";
     private static final String OAUTH_COMPLETE_URL = CLOUD_ORIGIN + "/api/oauth/google/native/complete";
-    private static final String CLOUD_INBOX_URL = CLOUD_ORIGIN + "/#inbox";
+    private static final String LOCAL_INBOX_URL = "https://" + LOCAL_HOST + "/#inbox";
     private static final String APP_PREFERENCES = "mailbox_manager";
     private static final String CLOUD_SESSION_ENABLED = "cloud_session_enabled";
     private static final String OAUTH_APP_LINK_PATH = "/app/oauth/callback";
@@ -143,6 +145,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         WebView webView = bridge.getWebView();
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.addJavascriptInterface(new EmlDownloadBridge(), "MailBoxAndroid");
         webView.setDownloadListener(this::handleHttpDownload);
         bridge.addWebViewListener(new WebViewListener() {
@@ -159,10 +162,6 @@ public class MainActivity extends BridgeActivity {
         });
         appUpdateManager = new AppUpdateManager(this);
         boolean handlingOAuth = handleOAuthIntent(getIntent(), webView);
-        SharedPreferences preferences = getSharedPreferences(APP_PREFERENCES, MODE_PRIVATE);
-        if (!handlingOAuth && preferences.getBoolean(CLOUD_SESSION_ENABLED, false)) {
-            webView.loadUrl(CLOUD_INBOX_URL);
-        }
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -200,10 +199,48 @@ public class MainActivity extends BridgeActivity {
             Toast.makeText(this, "Google 登入回傳資料無效", Toast.LENGTH_LONG).show();
             return true;
         }
-        getSharedPreferences(APP_PREFERENCES, MODE_PRIVATE).edit().putBoolean(CLOUD_SESSION_ENABLED, true).apply();
-        String form = "code=" + code;
-        webView.postUrl(OAUTH_COMPLETE_URL, form.getBytes(StandardCharsets.UTF_8));
+        completeNativeOAuth(code, webView);
         return true;
+    }
+
+    private void completeNativeOAuth(String code, WebView webView) {
+        downloadExecutor.execute(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(OAUTH_COMPLETE_URL).openConnection();
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(15_000);
+                connection.setReadTimeout(15_000);
+                connection.setRequestMethod("POST");
+                connection.setDoOutput(true);
+                connection.setRequestProperty("Origin", "https://localhost");
+                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+                try (OutputStream output = connection.getOutputStream()) {
+                    output.write(("code=" + code).getBytes(StandardCharsets.UTF_8));
+                }
+                int status = connection.getResponseCode();
+                String sessionCookie = connection.getHeaderField("Set-Cookie");
+                if (status != HttpURLConnection.HTTP_SEE_OTHER || sessionCookie == null || sessionCookie.isBlank()) {
+                    throw new IllegalStateException("登入交換失敗 (" + status + ")");
+                }
+                CookieManager.getInstance().setCookie(CLOUD_ORIGIN, sessionCookie, accepted -> {
+                    if (!accepted) {
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "無法儲存 Google 登入狀態", Toast.LENGTH_LONG).show());
+                        return;
+                    }
+                    CookieManager.getInstance().flush();
+                    getSharedPreferences(APP_PREFERENCES, MODE_PRIVATE).edit().putBoolean(CLOUD_SESSION_ENABLED, true).apply();
+                    runOnUiThread(() -> {
+                        webView.loadUrl(LOCAL_INBOX_URL);
+                        Toast.makeText(MainActivity.this, "Google 帳號已連結", Toast.LENGTH_LONG).show();
+                    });
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Google 登入失敗：" + error.getMessage(), Toast.LENGTH_LONG).show());
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        });
     }
 
     static boolean isTrustedOAuthCallback(String rawCallback) {

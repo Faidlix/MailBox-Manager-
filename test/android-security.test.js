@@ -11,8 +11,8 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 
 test('release APK is non-debuggable, same-signer compatible, and versioned', () => {
   const gradle = read('android/app/build.gradle');
-  assert.match(gradle, /versionCode\s+32\b/);
-  assert.match(gradle, /versionName\s+"0\.1\.32"/);
+  assert.match(gradle, /versionCode\s+33\b/);
+  assert.match(gradle, /versionName\s+"0\.1\.33"/);
   assert.match(gradle, /release\s*\{[\s\S]*?debuggable\s+false/);
   assert.match(gradle, /release\s*\{[\s\S]*?signingConfig\s+signingConfigs\.debug/);
 });
@@ -21,12 +21,20 @@ test('Google OAuth leaves WebView and returns only through exact app callbacks',
   const manifest = read('android/app/src/main/AndroidManifest.xml');
   const activity = read('android/app/src/main/java/com/faidlix/mailboxmanager/MainActivity.java');
   const app = read('public/app.js');
-  assert.match(manifest, /android:autoVerify="true"[\s\S]*?android:host="mailbox-manager-test\.fantasy02dreamer08\.chatgpt\.site"[\s\S]*?android:path="\/app\/oauth\/callback"/);
+  assert.match(manifest, /android:autoVerify="true"[\s\S]*?android:host="mailbox-manager-oauth\.fantasy02dreamer08\.chatgpt\.site"[\s\S]*?android:path="\/app\/oauth\/callback"/);
   assert.match(manifest, /android:scheme="mailboxmanager"[\s\S]*?android:host="oauth"[\s\S]*?android:path="\/callback"/);
   assert.match(activity, /Intent\.ACTION_VIEW[\s\S]*?OAUTH_START_URL/);
-  assert.match(activity, /postUrl\(OAUTH_COMPLETE_URL/);
+  assert.match(activity, /new URL\(OAUTH_COMPLETE_URL\)[\s\S]*?setRequestProperty\("Origin", "https:\/\/localhost"\)[\s\S]*?getHeaderField\("Set-Cookie"\)/);
   assert.match(activity, /MailBoxAndroid\.startGoogleOAuth/);
   assert.match(app, /globalThis\.mailBoxNativeOAuth/);
+});
+
+test('bundled Android UI routes API calls to the public broker with cookies', () => {
+  const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /NATIVE_API_ORIGIN = 'https:\/\/mailbox-manager-oauth\.fantasy02dreamer08\.chatgpt\.site'/);
+  assert.match(app, /credentials: 'include'/);
+  assert.match(app, /if \(isNativePlatform\(\)\) return false/);
+  assert.match(app, /initialLoadError = error\.message[\s\S]*?renderMessageList\(\)[\s\S]*?showNotice\(initialLoadError, true\)/);
 });
 
 test('Android Back dismisses focused form controls before navigating', () => {

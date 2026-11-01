@@ -42,7 +42,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
-                    android:host="mailbox-manager-test.fantasy02dreamer08.chatgpt.site"
+                    android:host="mailbox-manager-oauth.fantasy02dreamer08.chatgpt.site"
                     android:path="/app/oauth/callback" />
             </intent-filter>
 

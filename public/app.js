@@ -2,6 +2,13 @@
 // Loaded by public/index.html; run `npm test` to verify its interactions.
 import { createMessagePdf } from './message-export.js';
 
+const NATIVE_API_ORIGIN = 'https://mailbox-manager-oauth.fantasy02dreamer08.chatgpt.site';
+const isNativePlatform = () => globalThis.Capacitor?.isNativePlatform?.() === true;
+const apiUrl = (url) => isNativePlatform() && String(url).startsWith('/api/') ? `${NATIVE_API_ORIGIN}${url}` : url;
+const apiFetch = (url, options = {}) => fetch(apiUrl(url), isNativePlatform()
+  ? { ...options, credentials: 'include' }
+  : options);
+
 const view = document.querySelector('#view');
 const title = document.querySelector('#page-title');
 const noticeRoot = document.querySelector('#notice');
@@ -69,6 +76,7 @@ const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
 const inboxFilters = { accountId: '', category: '', state: 'all' };
 async function detectDemoMode() {
   if (new URLSearchParams(location.search).has('demo')) return true;
+  if (isNativePlatform()) return false;
   try {
     const response = await fetch('/api/runtime', { cache: 'no-store' });
     if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) return true;
@@ -171,7 +179,7 @@ const demoApi = async (url, options = {}) => {
 };
 const api = async (url, options = {}) => {
   if (demoMode) return demoApi(url, options);
-  const response = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
+  const response = await apiFetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
   if (!response.ok) {
     const result = await response.json().catch(() => ({}));
     throw new Error(result.error || `要求失敗 (${response.status})`);
@@ -314,7 +322,11 @@ async function renderInbox() {
   title.textContent = '統一收件匣';
   view.append(document.querySelector('#inbox-template').content.cloneNode(true));
   await loadAccounts();
-  const allMessages = await api('/api/messages?state=all');
+  let initialLoadError = '';
+  const allMessages = await api('/api/messages?state=all').catch((error) => {
+    initialLoadError = error.message;
+    return [];
+  });
   const categories = [...new Set([...allMessages.map((message) => message.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   const states = [['all', '全部郵件'], ['unread', '未讀'], ['starred', '星號'], ['archive', '封存'], ['spam', '垃圾郵件'], ['trash', '垃圾桶']];
   const inboxContent = document.querySelector('#inbox-content');
@@ -400,7 +412,14 @@ async function renderInbox() {
   document.querySelector('#category-settings').addEventListener('click', () => openSettings('rules'));
   document.querySelector('#add-account').addEventListener('click', () => openQuickFolderDialog('accounts'));
   document.querySelector('#add-category').addEventListener('click', () => openQuickFolderDialog('categories'));
-  await update();
+  if (initialLoadError) {
+    loadedMessages = [];
+    messages = [];
+    renderMessageList();
+    showNotice(initialLoadError, true);
+  } else {
+    await update();
+  }
 }
 
 function updateBulkToolbar() {
@@ -867,7 +886,7 @@ async function getMessageEmlFile(message) {
   let blob;
   if (demoMode) blob = new Blob([await demoEml(message)], { type: 'message/rfc822;charset=utf-8' });
   else {
-    const response = await fetch(`/api/messages/${message.id}/download`);
+      const response = await apiFetch(`/api/messages/${message.id}/download`);
     if (!response.ok) throw new Error('下載信件失敗');
     blob = await response.blob();
   }
