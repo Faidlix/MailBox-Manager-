@@ -69,7 +69,12 @@ test('updates use persistent background work, resumable partials and post-instal
   assert.match(worker, /getFilesDir\(\),\s*"verified-updates"/);
   assert.match(worker, /BinaryDelta\.apply/);
   assert.match(worker, /showReadyToInstall/);
+  assert.match(worker, /setProgress\(100, progress, false\)/);
+  assert.match(worker, /progress-percent/);
+  assert.match(worker, /reportDownloadProgress\("下載差分更新"/);
+  assert.match(worker, /reportDownloadProgress\("下載完整更新"/);
   assert.match(resumable, /setRequestProperty\("Range", "bytes=" \+ existing \+ "-"\)/);
+  assert.match(resumable, /progress\.onProgress\(total, expectedSize\)/);
   assert.match(manager, /BuildConfig\.VERSION_CODE < pendingVersion/);
   assert.match(manager, /showPendingInstallIfReady\(\)/);
   assert.match(manager, /setTitle\("更新已下載完成"\)/);
