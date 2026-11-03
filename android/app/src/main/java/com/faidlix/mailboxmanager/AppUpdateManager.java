@@ -191,7 +191,10 @@ final class AppUpdateManager implements AutoCloseable {
         if (activity.isFinishing() || activity.isDestroyed()) return;
         new AlertDialog.Builder(activity)
             .setTitle("有新版 MailBox Manager")
-            .setMessage("版本 " + release.versionName() + " 已可下載。Android 仍會要求你確認安裝。")
+            .setMessage("版本 " + release.versionName() + " 已可下載。\n\n"
+                + "會優先只下載目前版本到新版之間的差分內容；若沒有適用差分，才下載完整 APK（"
+                + formatBytes(release.sizeBytes()) + "）。\n\n"
+                + "下載可在背景及關閉螢幕時繼續，進度會顯示在通知欄。完成後 Android 仍會要求你確認安裝。")
             .setNegativeButton("稍後", null)
             .setPositiveButton("下載更新", (dialog, which) -> downloadAndInstall(release))
             .show();
@@ -208,11 +211,13 @@ final class AppUpdateManager implements AutoCloseable {
         enqueueBackgroundUpdate(release);
     }
 
-    boolean handlePermissionResult(int requestCode) {
+    boolean handlePermissionResult(int requestCode, int[] grantResults) {
         if (requestCode != NOTIFICATION_PERMISSION_REQUEST) return false;
         UpdateContract.ReleaseMetadata release = pendingPermissionRelease;
         pendingPermissionRelease = null;
-        if (release != null) enqueueBackgroundUpdate(release);
+        boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        if (release != null && granted) enqueueBackgroundUpdate(release);
+        else if (release != null) Toast.makeText(activity, "請允許通知，才能在背景顯示更新進度", Toast.LENGTH_LONG).show();
         return true;
     }
 
@@ -227,6 +232,12 @@ final class AppUpdateManager implements AutoCloseable {
         WorkManager.getInstance(activity).enqueueUniqueWork(UPDATE_WORK_NAME, ExistingWorkPolicy.KEEP, work);
         Toast.makeText(activity, "更新會在背景下載，完成後通知安裝", Toast.LENGTH_LONG).show();
         activity.moveTaskToBack(true);
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes >= 1024L * 1024L) return String.format(java.util.Locale.TAIWAN, "%.1f MB", bytes / (1024d * 1024d));
+        if (bytes >= 1024L) return String.format(java.util.Locale.TAIWAN, "%.0f KB", bytes / 1024d);
+        return bytes + " B";
     }
 
     private boolean showPendingInstallIfReady() {
