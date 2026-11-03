@@ -4,8 +4,9 @@ import { createMessagePdf } from './message-export.js';
 
 const NATIVE_API_ORIGIN = 'https://mailbox-manager-oauth.fantasy02dreamer08.chatgpt.site';
 const isNativePlatform = () => globalThis.Capacitor?.isNativePlatform?.() === true;
-const apiUrl = (url) => isNativePlatform() && String(url).startsWith('/api/') ? `${NATIVE_API_ORIGIN}${url}` : url;
-const apiFetch = (url, options = {}) => fetch(apiUrl(url), isNativePlatform()
+const usesBrokerApi = () => isNativePlatform() || location.hostname === 'mailbox-manager-test.fantasy02dreamer08.chatgpt.site';
+const apiUrl = (url) => usesBrokerApi() && String(url).startsWith('/api/') ? `${NATIVE_API_ORIGIN}${url}` : url;
+const apiFetch = (url, options = {}) => fetch(apiUrl(url), usesBrokerApi()
   ? { ...options, credentials: 'include' }
   : options);
 
@@ -80,7 +81,7 @@ async function detectDemoMode() {
   if (new URLSearchParams(location.search).has('demo')) return true;
   if (isNativePlatform()) return false;
   try {
-    const response = await fetch('/api/runtime', { cache: 'no-store' });
+    const response = await apiFetch('/api/runtime', { cache: 'no-store' });
     if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) return true;
     return (await response.json()).api !== true;
   } catch { return true; }
@@ -1314,7 +1315,10 @@ function startProviderAuthorization(provider) {
       return;
     }
   }
-  globalThis.location.assign(`/api/oauth/${provider}/start?client=android`);
+  const startUrl = isNative
+    ? `${NATIVE_API_ORIGIN}/api/oauth/${provider}/start?client=android`
+    : `${usesBrokerApi() ? NATIVE_API_ORIGIN : ''}/api/oauth/${provider}/start?return_origin=${encodeURIComponent(location.origin)}`;
+  globalThis.location.assign(startUrl);
 }
 
 async function mountAccounts(target, embedded = false) {
