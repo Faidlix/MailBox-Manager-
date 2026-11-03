@@ -34,6 +34,8 @@ public final class AppUpdateWorker extends Worker {
     private static final String KEY_SHA256 = "sha256";
     private static final String KEY_SIZE_BYTES = "size-bytes";
     private static final String KEY_SIGNER = "signer";
+    private int lastNotificationProgress = -2;
+    private long lastNotificationAt;
 
     public AppUpdateWorker(@NonNull Context context, @NonNull WorkerParameters parameters) {
         super(context, parameters);
@@ -86,9 +88,11 @@ public final class AppUpdateWorker extends Worker {
             if (candidate == null) {
                 setForegroundAsync(foregroundInfo("下載完整更新…"));
                 ResumableUpdateDownloader.download(release.downloadUrl(), release.sizeBytes(), release.sha256(), fullPartial,
-                    APK_MIME + ", application/octet-stream", url -> (HttpURLConnection) url.openConnection());
+                    APK_MIME + ", application/octet-stream", url -> (HttpURLConnection) url.openConnection(),
+                    (downloaded, total) -> reportDownloadProgress("下載完整更新", downloaded, total));
                 candidate = fullPartial;
             }
+            setForegroundAsync(foregroundInfo("正在驗證更新…"));
             try {
                 AppUpdateManager.verifyArchive(getApplicationContext(), candidate, release);
             } catch (IOException error) {
@@ -126,13 +130,15 @@ public final class AppUpdateWorker extends Worker {
         setForegroundAsync(foregroundInfo("下載差分更新…"));
         try {
             ResumableUpdateDownloader.download(patch.downloadUrl(), patch.sizeBytes(), patch.sha256(), patchPartial,
-                "application/octet-stream", url -> (HttpURLConnection) url.openConnection());
+                "application/octet-stream", url -> (HttpURLConnection) url.openConnection(),
+                (downloaded, total) -> reportDownloadProgress("下載差分更新", downloaded, total));
         } catch (ResumableUpdateDownloader.PermanentDownloadException error) {
             Log.w(TAG, "Delta artifact invalid; using full APK", error);
             delete(patchPartial);
             return null;
         }
         try {
+            setForegroundAsync(foregroundInfo("正在套用差分更新…"));
             BinaryDelta.apply(new File(getApplicationContext().getApplicationInfo().sourceDir), patchPartial,
                 rebuiltPartial, release.sizeBytes());
             SecureUpdateDownloader.verifyFile(rebuiltPartial, release.sizeBytes(), release.sha256());
@@ -191,23 +197,53 @@ public final class AppUpdateWorker extends Worker {
             .apply();
     }
 
-    private Notification progressNotification(String text) {
-        return new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
+    private Notification progressNotification(String text, int progress) {
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("MailBox Manager 更新")
             .setContentText(text)
             .setOngoing(true)
-            .setProgress(0, 0, true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build();
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS);
+        if (progress >= 0) builder.setProgress(100, progress, false);
+        else builder.setProgress(0, 0, true);
+        return builder.build();
     }
 
     private ForegroundInfo foregroundInfo(String text) {
-        Notification notification = progressNotification(text);
+        return foregroundInfo(text, -1);
+    }
+
+    private ForegroundInfo foregroundInfo(String text, int progress) {
+        Notification notification = progressNotification(text, progress);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             return new ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         }
         return new ForegroundInfo(NOTIFICATION_ID, notification);
+    }
+
+    private void reportDownloadProgress(String label, long downloaded, long total) {
+        if (total <= 0) return;
+        int progress = (int) Math.min(100, Math.max(0, downloaded * 100L / total));
+        long now = System.currentTimeMillis();
+        if (progress == lastNotificationProgress && now - lastNotificationAt < 1_000) return;
+        lastNotificationProgress = progress;
+        lastNotificationAt = now;
+        setProgressAsync(new Data.Builder()
+            .putLong("downloaded-bytes", downloaded)
+            .putLong("total-bytes", total)
+            .putInt("progress-percent", progress)
+            .build());
+        setForegroundAsync(foregroundInfo(label + " " + progress + "% · " + formatBytes(downloaded)
+            + " / " + formatBytes(total), progress));
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes >= 1024L * 1024L) return String.format(java.util.Locale.TAIWAN, "%.1f MB", bytes / (1024d * 1024d));
+        if (bytes >= 1024L) return String.format(java.util.Locale.TAIWAN, "%.0f KB", bytes / 1024d);
+        return bytes + " B";
     }
 
     private void showReadyToInstall(File apk, UpdateContract.ReleaseMetadata release) {
@@ -241,7 +277,7 @@ public final class AppUpdateWorker extends Worker {
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "App 更新", NotificationManager.IMPORTANCE_DEFAULT);
-        channel.setDescription("下載完成後通知安裝 MailBox Manager 更新");
+        channel.setDescription("顯示 MailBox Manager 更新下載進度，完成後通知安裝");
         notificationManager().createNotificationChannel(channel);
     }
 
