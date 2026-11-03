@@ -11,8 +11,8 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 
 test('release APK is non-debuggable, same-signer compatible, and versioned', () => {
   const gradle = read('android/app/build.gradle');
-  assert.match(gradle, /versionCode\s+33\b/);
-  assert.match(gradle, /versionName\s+"0\.1\.33"/);
+  assert.match(gradle, /versionCode\s+34\b/);
+  assert.match(gradle, /versionName\s+"0\.1\.34"/);
   assert.match(gradle, /release\s*\{[\s\S]*?debuggable\s+false/);
   assert.match(gradle, /release\s*\{[\s\S]*?signingConfig\s+signingConfigs\.debug/);
 });
@@ -65,11 +65,18 @@ test('updates use persistent background work, resumable partials and post-instal
   assert.match(gradle, /androidx\.work:work-runtime/);
   assert.match(manager, /enqueueUniqueWork\(UPDATE_WORK_NAME, ExistingWorkPolicy\.KEEP/);
   assert.match(manager, /moveTaskToBack\(true\)/);
+  assert.match(manager, /會優先只下載目前版本到新版之間的差分內容/);
+  assert.match(manager, /grantResults\[0\] == PackageManager\.PERMISSION_GRANTED/);
   assert.match(worker, /Result\.retry\(\)/);
   assert.match(worker, /getFilesDir\(\),\s*"verified-updates"/);
   assert.match(worker, /BinaryDelta\.apply/);
   assert.match(worker, /showReadyToInstall/);
+  assert.match(worker, /setProgress\(100, progress, false\)/);
+  assert.match(worker, /progress-percent/);
+  assert.match(worker, /reportDownloadProgress\("下載差分更新"/);
+  assert.match(worker, /reportDownloadProgress\("下載完整更新"/);
   assert.match(resumable, /setRequestProperty\("Range", "bytes=" \+ existing \+ "-"\)/);
+  assert.match(resumable, /progress\.onProgress\(total, expectedSize\)/);
   assert.match(manager, /BuildConfig\.VERSION_CODE < pendingVersion/);
   assert.match(manager, /showPendingInstallIfReady\(\)/);
   assert.match(manager, /setTitle\("更新已下載完成"\)/);
