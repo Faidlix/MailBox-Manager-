@@ -11,8 +11,8 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 
 test('release APK is non-debuggable, same-signer compatible, and versioned', () => {
   const gradle = read('android/app/build.gradle');
-  assert.match(gradle, /versionCode\s+33\b/);
-  assert.match(gradle, /versionName\s+"0\.1\.33"/);
+  assert.match(gradle, /versionCode\s+34\b/);
+  assert.match(gradle, /versionName\s+"0\.1\.34"/);
   assert.match(gradle, /release\s*\{[\s\S]*?debuggable\s+false/);
   assert.match(gradle, /release\s*\{[\s\S]*?signingConfig\s+signingConfigs\.debug/);
 });
