@@ -14,6 +14,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -32,6 +34,27 @@ public class ResumableUpdateDownloaderTest {
             "application/octet-stream", ignored -> connection);
         assertEquals("bytes=6-", connection.getRequestProperty("Range"));
         assertArrayEquals(full, Files.readAllBytes(partial.toPath()));
+    }
+
+    @Test
+    public void reportsResumedAndCompletedByteProgress() throws Exception {
+        byte[] full = "0123456789abcdef".getBytes();
+        File partial = temporaryFolder.newFile("progress.part");
+        Files.write(partial.toPath(), "012345".getBytes());
+        FakeConnection connection = new FakeConnection(new URL("https://example.test/update.apk"),
+            "6789abcdef".getBytes(), HttpURLConnection.HTTP_PARTIAL, "bytes 6-15/16");
+        List<Long> downloaded = new ArrayList<>();
+        List<Long> totals = new ArrayList<>();
+
+        ResumableUpdateDownloader.download(connection.getURL().toString(), full.length, sha256(full), partial,
+            "application/octet-stream", ignored -> connection, (current, total) -> {
+                downloaded.add(current);
+                totals.add(total);
+            });
+
+        assertEquals(Long.valueOf(6), downloaded.get(0));
+        assertEquals(Long.valueOf(16), downloaded.get(downloaded.size() - 1));
+        assertTrue(totals.stream().allMatch(total -> total == 16));
     }
 
     @Test
