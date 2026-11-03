@@ -314,7 +314,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        if (appUpdateManager != null && appUpdateManager.handlePermissionResult(requestCode)) return;
+        if (appUpdateManager != null && appUpdateManager.handlePermissionResult(requestCode, grantResults)) return;
         if (requestCode != STORAGE_PERMISSION_REQUEST) {
             super.onRequestPermissionsResult(requestCode, permissions, grantResults);
             return;
