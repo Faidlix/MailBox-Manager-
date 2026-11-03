@@ -72,6 +72,7 @@ test('automatic synchronization preserves list state and defers refresh while re
     autoSyncRunning: false, lastAutoSync: 0, autoSyncRefreshPending: false, accounts: [{}],
     document: { hidden: false, body: { classList: { contains: () => reading } }, querySelector: () => null },
     api: async () => [{ ok: true }],
+    loadFolders: async () => {},
     refreshInboxData: async (options) => refreshes.push(options),
     showNotice() {},
   });

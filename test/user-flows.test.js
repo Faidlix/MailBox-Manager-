@@ -106,8 +106,8 @@ test('round 07: archive keeps mail retrievable through its dedicated filter', ()
   await a.submit('#rule-form'); await until(() => a.all('.rule-card').length === initialRules + 1);
   await a.click('.rule-card button'); await until(() => a.all('.rule-card').length === initialRules);
   await a.click('.inline-panel-close'); await until(() => !a.q('#settings-dialog').open);
-  await a.click('#account-settings'); await until(() => a.q('#gmail-authorize'));
-  assert.equal(a.q('#gmail-authorize').disabled, false, 'Gmail link remains available to launch the native OAuth broker');
+  await a.click('#account-settings'); await until(() => a.q('.sync-one'));
+  assert.equal(a.q('#gmail-authorize'), null, 'account settings does not repeat provider linking actions');
   assert.equal(a.q('[name="clientSecret"]'), null);
   await a.click('.sync-one'); await until(() => a.q('#notice').textContent.includes('已同步'));
   await a.click('.delete-account'); await until(() => a.q('#notice').textContent.includes('示範帳號'));

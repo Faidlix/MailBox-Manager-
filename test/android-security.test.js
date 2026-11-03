@@ -11,8 +11,8 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 
 test('release APK is non-debuggable, same-signer compatible, and versioned', () => {
   const gradle = read('android/app/build.gradle');
-  assert.match(gradle, /versionCode\s+34\b/);
-  assert.match(gradle, /versionName\s+"0\.1\.34"/);
+  assert.match(gradle, /versionCode\s+35\b/);
+  assert.match(gradle, /versionName\s+"0\.1\.35"/);
   assert.match(gradle, /release\s*\{[\s\S]*?debuggable\s+false/);
   assert.match(gradle, /release\s*\{[\s\S]*?signingConfig\s+signingConfigs\.debug/);
 });
@@ -25,7 +25,8 @@ test('Google OAuth leaves WebView and returns only through exact app callbacks',
   assert.match(manifest, /android:scheme="mailboxmanager"[\s\S]*?android:host="oauth"[\s\S]*?android:path="\/callback"/);
   assert.match(activity, /Intent\.ACTION_VIEW[\s\S]*?OAUTH_START_URL/);
   assert.match(activity, /new URL\(OAUTH_COMPLETE_URL\)[\s\S]*?setRequestProperty\("Origin", "https:\/\/localhost"\)[\s\S]*?getHeaderField\("Set-Cookie"\)/);
-  assert.match(activity, /MailBoxAndroid\.startGoogleOAuth/);
+  assert.match(activity, /MailBoxAndroid\.startOAuth\(String\(provider\)/);
+  assert.match(activity, /OAUTH_START_URL_TEMPLATE[\s\S]*?\/api\/oauth\/%s\/start\?client=android/);
   assert.match(app, /globalThis\.mailBoxNativeOAuth/);
 });
 

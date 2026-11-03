@@ -28,11 +28,13 @@ const messageDownloadDialog = document.querySelector('#message-download-dialog')
 const messageDownloadForm = document.querySelector('#message-download-form');
 const settingsDialog = document.querySelector('#settings-dialog');
 const settingsContent = document.querySelector('#settings-content');
+const providerDialog = document.querySelector('#provider-dialog');
 const filterDrawerToggle = document.querySelector('#filter-drawer-toggle');
 const filterDrawerBackdrop = document.querySelector('#filter-drawer-backdrop');
 const messageActionMenu = document.querySelector('#message-action-menu');
 let actionMessageId = null;
 let accounts = [];
+let mailFolders = [];
 let messages = [];
 const MESSAGE_PAGE_SIZE = 100;
 let messagePage = 1;
@@ -73,7 +75,7 @@ const saveQuickFolders = () => {
 };
 let loadedMessages = [];
 const messageViewFilter = { fromDate: '', toDate: '', sender: '', subject: '' };
-const inboxFilters = { accountId: '', category: '', state: 'all' };
+const inboxFilters = { accountId: '', category: '', folderId: '', state: 'all' };
 async function detectDemoMode() {
   if (new URLSearchParams(location.search).has('demo')) return true;
   if (isNativePlatform()) return false;
@@ -132,15 +134,23 @@ const demoApi = async (url, options = {}) => {
   const method = options.method || 'GET';
   const parsed = new URL(url, location.origin);
   if (url === '/api/accounts') return structuredClone(demoAccounts);
+  if (url === '/api/folders') return [
+    { id: 'gmail:INBOX', account_id: 1, provider: 'gmail', name: '收件匣', kind: 'inbox', system: true },
+    { id: 'gmail:Label_1', account_id: 1, provider: 'gmail', name: '工作', kind: 'label', system: false },
+    { id: 'yahoo:Inbox', account_id: 2, provider: 'yahoo', name: '收件匣', kind: 'inbox', system: true },
+    { id: 'yahoo:Travel', account_id: 2, provider: 'yahoo', name: '旅遊', kind: 'folder', system: false },
+  ];
   if (parsed.pathname === '/api/messages' && method === 'GET') {
     let result = [...demoMessages];
     const search = parsed.searchParams.get('search')?.toLowerCase();
     const accountId = parsed.searchParams.get('accountId');
     const category = parsed.searchParams.get('category');
+    const folderId = parsed.searchParams.get('folderId');
     const state = parsed.searchParams.get('state') || 'all';
     if (search) result = result.filter((item) => `${item.subject} ${item.sender_name} ${item.sender_email} ${item.snippet}`.toLowerCase().includes(search));
     if (accountId) result = result.filter((item) => String(item.account_id) === accountId);
     if (category) result = result.filter((item) => item.category === category);
+    if (folderId) result = result.filter((item) => item.labels?.includes(folderId.split(':').slice(1).join(':')) || `${item.provider}:${item.folder}` === folderId);
     if (state === 'unread') result = result.filter((item) => !item.is_read);
     if (state === 'starred') result = result.filter((item) => item.is_starred);
     if (state === 'archive') result = result.filter((item) => item.folder === 'ARCHIVE');
@@ -224,6 +234,11 @@ async function loadAccounts() {
   return accounts;
 }
 
+async function loadFolders() {
+  mailFolders = await api('/api/folders').catch(() => []);
+  return mailFolders;
+}
+
 function formatDate(value) {
   const date = messageDate(value);
   if (!Number.isFinite(date.getTime())) return '日期不明';
@@ -298,7 +313,7 @@ function applyMessageViewFilter(source) {
   return source.filter((message) => {
     const folder = { archive: 'ARCHIVE', spam: 'SPAM', trash: 'TRASH' }[inboxFilters.state];
     if (folder && message.folder !== folder) return false;
-    if (!['spam', 'trash'].includes(inboxFilters.state) && ['SPAM', 'TRASH'].includes(message.folder)) return false;
+    if (!inboxFilters.folderId && !['spam', 'trash'].includes(inboxFilters.state) && ['SPAM', 'TRASH'].includes(message.folder)) return false;
     if (inboxFilters.state === 'starred' && !message.is_starred) return false;
     if (inboxFilters.state === 'unread' && message.is_read) return false;
     if (inboxFilters.category && message.category !== inboxFilters.category) return false;
@@ -321,7 +336,7 @@ async function renderInbox() {
   setFilterDrawer(false);
   title.textContent = '統一收件匣';
   view.append(document.querySelector('#inbox-template').content.cloneNode(true));
-  await loadAccounts();
+  await Promise.all([loadAccounts(), loadFolders()]);
   let initialLoadError = '';
   const allMessages = await api('/api/messages?state=all').catch((error) => {
     initialLoadError = error.message;
@@ -346,7 +361,8 @@ async function renderInbox() {
     document.querySelector('#account-filters').innerHTML = `<button class="filter-chip ${inboxFilters.accountId ? '' : 'active'}" data-account="">所有信箱</button>${accounts.map((account) => `<button class="filter-chip ${String(inboxFilters.accountId) === String(account.id) ? 'active' : ''}" data-account="${account.id}"><span class="chip-dot"></span>${escapeHtml(account.display_name || account.email)}</button>`).join('')}${quickFolders.accounts.map((folder) => `<button class="filter-chip quick-folder-chip" data-quick-account="${escapeHtml(folder.id)}"><span class="chip-dot"></span>${escapeHtml(folder.name)}</button>`).join('')}`;
     const currentCategories = [...new Set([...categories, ...loadedMessages.map((item) => item.category).filter(Boolean), ...quickFolders.categories.map((folder) => folder.name)])];
     document.querySelector('#category-filters').innerHTML = `<button class="filter-chip ${inboxFilters.category ? '' : 'active'}" data-category="">全部</button>${currentCategories.map((category) => `<button class="filter-chip ${inboxFilters.category === category ? 'active' : ''}" data-category="${escapeHtml(category)}"><span class="chip-dot"></span>${escapeHtml(category)}</button>`).join('')}`;
-    document.querySelector('#mail-filters').innerHTML = states.map(([value, label]) => `<button class="filter-chip ${inboxFilters.state === value ? 'active' : ''}" data-state="${value}">${label}</button>`).join('');
+    const visibleFolders = mailFolders.filter((folder) => !inboxFilters.accountId || String(folder.account_id) === String(inboxFilters.accountId));
+    document.querySelector('#mail-filters').innerHTML = `${states.map(([value, label]) => `<button class="filter-chip ${!inboxFilters.folderId && inboxFilters.state === value ? 'active' : ''}" data-state="${value}">${label}</button>`).join('')}${visibleFolders.map((folder) => `<button class="filter-chip remote-folder ${inboxFilters.folderId === folder.id ? 'active' : ''}" data-folder-id="${escapeHtml(folder.id)}">${escapeHtml(folder.name)}</button>`).join('')}`;
   };
   inboxContent.innerHTML = mailShell();
   bindBulkToolbar();
@@ -359,7 +375,7 @@ async function renderInbox() {
     if (!document.querySelector('#message-list')) { inboxContent.innerHTML = mailShell(); bindBulkToolbar(); }
     setSettingsState();
     const search = document.querySelector('#search-input').value;
-    const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), state: inboxFilters.state, limit: '1000' });
+    const query = new URLSearchParams({ ...(search && { search }), ...(inboxFilters.accountId && { accountId: inboxFilters.accountId }), ...(inboxFilters.category && { category: inboxFilters.category }), ...(inboxFilters.folderId && { folderId: inboxFilters.folderId }), state: inboxFilters.state, limit: '1000' });
     if (!preserve) {
       document.querySelector('#message-pagination').hidden = true;
       document.querySelector('#message-list-scroll').innerHTML = '<div class="loading">載入郵件中…</div>';
@@ -381,10 +397,10 @@ async function renderInbox() {
   let timer;
   document.querySelector('#search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(update, 250); });
   document.querySelector('#search-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') setFilterDrawer(false); });
-  document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-account]'); if (!button) return; inboxFilters.accountId = button.dataset.account; renderFilters(); update(); setFilterDrawer(false); });
+  document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-account]'); if (!button) return; inboxFilters.accountId = button.dataset.account; if (inboxFilters.folderId && !mailFolders.some((folder) => folder.id === inboxFilters.folderId && (!inboxFilters.accountId || String(folder.account_id) === String(inboxFilters.accountId)))) inboxFilters.folderId = ''; renderFilters(); update(); setFilterDrawer(false); });
   document.querySelector('#account-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-quick-account]'); if (!button) return; const folder = quickFolders.accounts.find((item) => item.id === button.dataset.quickAccount); if (folder) showNotice(`「${folder.name}」已新增，請按標題旁的齒輪完成信箱連線。`); });
   document.querySelector('#category-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-category]'); if (!button) return; inboxFilters.category = button.dataset.category; renderFilters(); update(); setFilterDrawer(false); });
-  document.querySelector('#mail-filters').addEventListener('click', (event) => { const button = event.target.closest('[data-state]'); if (!button) return; inboxFilters.state = button.dataset.state; renderFilters(); update(); setFilterDrawer(false); });
+  document.querySelector('#mail-filters').addEventListener('click', (event) => { const folder = event.target.closest('[data-folder-id]'); if (folder) { inboxFilters.folderId = folder.dataset.folderId; inboxFilters.state = 'all'; renderFilters(); update(); setFilterDrawer(false); return; } const button = event.target.closest('[data-state]'); if (!button) return; inboxFilters.folderId = ''; inboxFilters.state = button.dataset.state; renderFilters(); update(); setFilterDrawer(false); });
   const openSettings = async (type) => {
     setFilterDrawer(false);
     setComposeVisibility(false);
@@ -400,7 +416,7 @@ async function renderInbox() {
     setSettingsState();
     setComposeVisibility(!document.body.classList.contains('message-open'));
     try {
-      await loadAccounts();
+      await Promise.all([loadAccounts(), loadFolders()]);
       if (!inboxContent.isConnected) return;
       if (inboxFilters.accountId && !accounts.some((account) => String(account.id) === String(inboxFilters.accountId))) inboxFilters.accountId = '';
       renderFilters();
@@ -410,7 +426,7 @@ async function renderInbox() {
   };
   document.querySelector('#account-settings').addEventListener('click', () => openSettings('accounts'));
   document.querySelector('#category-settings').addEventListener('click', () => openSettings('rules'));
-  document.querySelector('#add-account').addEventListener('click', () => openQuickFolderDialog('accounts'));
+  document.querySelector('#add-account').addEventListener('click', () => { setFilterDrawer(false); providerDialog.showModal(); });
   document.querySelector('#add-category').addEventListener('click', () => openQuickFolderDialog('categories'));
   if (initialLoadError) {
     loadedMessages = [];
@@ -444,12 +460,16 @@ function updateBulkToolbar() {
   selectAllResults.hidden = messages.length <= pageMessages.length;
   const countSummary = document.querySelector('#message-count-summary');
   if (countSummary) countSummary.textContent = selected.length ? String(selected.length) : `${pageMessages.length}/${messages.length}`;
-  const filterActive = Object.values(messageViewFilter).some(Boolean) || Boolean(inboxFilters.accountId || inboxFilters.category || inboxFilters.state !== 'all' || document.querySelector('#search-input')?.value);
+  const filterActive = Object.values(messageViewFilter).some(Boolean) || Boolean(inboxFilters.accountId || inboxFilters.category || inboxFilters.folderId || inboxFilters.state !== 'all' || document.querySelector('#search-input')?.value);
   const filterLabels = [];
   if (inboxFilters.category) filterLabels.push(inboxFilters.category);
   if (inboxFilters.accountId) {
     const account = accounts.find((item) => String(item.id) === String(inboxFilters.accountId));
     if (account) filterLabels.push(account.display_name || account.email);
+  }
+  if (inboxFilters.folderId) {
+    const folder = mailFolders.find((item) => item.id === inboxFilters.folderId);
+    if (folder) filterLabels.push(folder.name);
   }
   if (messageViewFilter.sender) filterLabels.push(messageViewFilter.sender);
   if (messageViewFilter.fromDate && messageViewFilter.fromDate === messageViewFilter.toDate) filterLabels.push(formatMessageGroupDate(`${messageViewFilter.fromDate}T12:00:00`));
@@ -578,7 +598,7 @@ function bindBulkToolbar() {
   document.querySelector('#message-filter').addEventListener('click', openMessageFilterDialog);
   document.querySelector('#message-filter-reset').addEventListener('click', async () => {
     Object.assign(messageViewFilter, { fromDate: '', toDate: '', sender: '', subject: '' });
-    Object.assign(inboxFilters, { accountId: '', category: '', state: 'all' });
+    Object.assign(inboxFilters, { accountId: '', category: '', folderId: '', state: 'all' });
     const search = document.querySelector('#search-input');
     if (search) search.value = '';
     selectedMessageIds.clear();
@@ -1280,7 +1300,8 @@ async function openCompose(draft = {}) {
   if (!composeDialog.open) composeDialog.showModal();
 }
 
-function startGoogleAuthorization() {
+function startProviderAuthorization(provider) {
+  if (!['google', 'yahoo'].includes(provider)) return;
   const bridge = globalThis.mailBoxNativeOAuth;
   const isNative = Boolean(globalThis.Capacitor?.isNativePlatform?.());
   if (isNative && bridge) {
@@ -1288,36 +1309,22 @@ function startGoogleAuthorization() {
       ? bridge
       : bridge.startGoogleOAuth || bridge.startGoogleLogin || bridge.startGoogle || bridge.openGoogleOAuth;
     if (typeof launch === 'function') {
-      launch.call(bridge);
-      showNotice('已開啟 Google 官方登入頁');
+      launch.call(bridge, provider);
+      showNotice(`已開啟 ${provider === 'google' ? 'Google' : 'Yahoo'} 官方登入頁`);
       return;
     }
   }
-  globalThis.location.assign('/api/oauth/google/start');
+  globalThis.location.assign(`/api/oauth/${provider}/start?client=android`);
 }
 
 async function mountAccounts(target, embedded = false) {
   setComposeVisibility(false);
   await loadAccounts();
   target.innerHTML = `<div class="inline-settings">
-    ${embedded ? '<div class="inline-panel-head"><div><h2>信箱帳號設定</h2><p>管理現有帳號或新增 Gmail、Yahoo 與一般信箱。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}
-    ${quickFolderSection('accounts')}
+    ${embedded ? '<div class="inline-panel-head"><div><h2>信箱帳號設定</h2><p>管理已連結的信箱與同步狀態。</p></div><button class="ghost inline-panel-close" type="button">完成</button></div>' : ''}
     <div class="account-grid">${accounts.length ? accounts.map((account) => `
-      <div class="account-card card"><div class="account-icon">${account.provider === 'gmail' ? 'G' : 'IM'}</div><div class="account-info"><b>${escapeHtml(account.email)}</b><small>${account.provider === 'gmail' ? 'Google OAuth' : 'IMAP / SMTP'} · ${account.last_synced_at ? `上次同步 ${formatDate(account.last_synced_at)}` : '尚未同步'}</small></div><button class="ghost sync-one" data-id="${account.id}">同步</button><button class="danger delete-account" data-id="${account.id}">移除</button></div>`).join('') : '<div class="card loading">尚未加入任何信箱。</div>'}</div>
-    <h2 class="section-title" style="margin-top:32px">新增信箱</h2>
-    <div class="split">
-      <section class="form-card card provider-connect-card" aria-labelledby="gmail-provider-title"><div class="provider-title-row"><h3 id="gmail-provider-title">Gmail</h3><button id="gmail-authorize" class="primary provider-link" type="button">連結</button></div><p>使用 Google 帳號登入官方頁面，不需要在 MailBox Manager 輸入 Gmail 密碼。</p></section>
-      <section class="form-card card provider-connect-card" aria-labelledby="yahoo-provider-title"><div class="provider-title-row"><h3 id="yahoo-provider-title">Yahoo</h3><button id="yahoo-authorize" class="primary provider-link" type="button">連結</button></div><p>使用 Yahoo 帳號登入官方頁面，不需要在 MailBox Manager 輸入帳號或應用程式密碼。</p></section>
-    </div></div>`;
+      <div class="account-card card"><div class="account-icon">${account.provider === 'gmail' ? 'G' : 'Y'}</div><div class="account-info"><b>${escapeHtml(account.email)}</b><small>${account.provider === 'gmail' ? 'Google OAuth' : 'Yahoo OAuth'} · ${account.last_synced_at ? `上次同步 ${formatDate(account.last_synced_at)}` : '尚未同步'}</small></div><button class="ghost sync-one" data-id="${account.id}">同步</button><button class="danger delete-account" data-id="${account.id}">移除</button></div>`).join('') : '<div class="card loading">尚未加入任何信箱。請使用收件匣信箱列旁的「＋」連結帳號。</div>'}</div></div>`;
   target.querySelector('.inline-panel-close')?.addEventListener('click', () => target.closest('dialog') ? target.closest('dialog').close() : renderRoute());
-  bindQuickFolderDeletes(target, () => mountAccounts(target, embedded));
-  target.querySelector('#gmail-authorize').addEventListener('click', () => {
-    startGoogleAuthorization();
-  });
-  target.querySelector('#yahoo-authorize').addEventListener('click', () => {
-    window.open('https://login.yahoo.com/', '_blank', 'noopener');
-    showNotice('已開啟 Yahoo 官方登入頁');
-  });
   target.querySelectorAll('.sync-one').forEach((button) => button.addEventListener('click', async () => {
     setBusy(button, true, '同步中…'); try { const result = await api(`/api/accounts/${button.dataset.id}/sync`, { method: 'POST' }); showNotice(`已同步 ${result.count} 封郵件`); await mountAccounts(target, embedded); } catch (error) { showNotice(error.message, true); setBusy(button, false); }
   }));
@@ -1498,7 +1505,10 @@ const closeHelp = () => { helpDialog.close(); setComposeVisibility(!document.bod
 helpButton.addEventListener('click', () => { setComposeVisibility(false); helpDialog.showModal(); });
 document.querySelector('#help-close').addEventListener('click', closeHelp);
 document.querySelector('#help-done').addEventListener('click', closeHelp);
-[composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog, messageDownloadDialog, settingsDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+[composeDialog, helpDialog, quickFolderDialog, cleanupDialog, messageFilterDialog, messageDownloadDialog, settingsDialog, providerDialog].forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); }));
+document.querySelector('#provider-dialog-close').addEventListener('click', () => providerDialog.close());
+document.querySelector('#provider-gmail').addEventListener('click', () => { providerDialog.close(); startProviderAuthorization('google'); });
+document.querySelector('#provider-yahoo').addEventListener('click', () => { providerDialog.close(); startProviderAuthorization('yahoo'); });
 helpDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
 quickFolderDialog.addEventListener('close', () => setComposeVisibility(!document.body.classList.contains('settings-open')));
 filterDrawerToggle.addEventListener('click', () => setFilterDrawer(!document.body.classList.contains('filters-open')));
@@ -1521,7 +1531,7 @@ window.addEventListener('scroll', hideMessageMenu, { passive: true });
 
 syncButton.addEventListener('click', async () => {
   setBusy(syncButton, true, '同步中…');
-  try { const results = await api('/api/sync', { method: 'POST' }); const count = results.filter((x) => x.ok).reduce((sum, x) => sum + x.count, 0); const failed = results.filter((x) => !x.ok); showNotice(failed.length ? `同步 ${count} 封，${failed.length} 個帳號失敗：${failed[0].error}` : `已同步 ${count} 封郵件`, failed.length > 0); await renderRoute(); }
+  try { const results = await api('/api/sync', { method: 'POST' }); const count = results.filter((x) => x.ok).reduce((sum, x) => sum + x.count, 0); const failed = results.filter((x) => !x.ok); showNotice(failed.length ? `同步 ${count} 封，${failed.length} 個帳號失敗：${failed[0].error}` : `已同步 ${count} 封郵件`, failed.length > 0); await loadFolders(); await renderRoute(); }
   catch (error) { showNotice(error.message, true); }
   finally { setBusy(syncButton, false); }
 });
@@ -1533,6 +1543,7 @@ async function syncInboxAutomatically() {
     const results = await api('/api/sync', { method: 'POST' });
     const failed = results.filter((item) => !item.ok);
     if (failed.length) showNotice(`有 ${failed.length} 個信箱同步失敗：${failed[0].error}`, true);
+    await loadFolders();
     if (document.body.classList.contains('message-open') || document.querySelector('dialog[open]')) autoSyncRefreshPending = true;
     else await refreshInboxData?.({ preserve: true });
   } catch (error) { showNotice(`自動同步失敗：${error.message}`, true); }

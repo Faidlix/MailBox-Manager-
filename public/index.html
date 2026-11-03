@@ -49,6 +49,13 @@
     </div>
   </template>
   <dialog id="settings-dialog" class="app-dialog settings-dialog" aria-label="信箱與分類設定"><div id="settings-content"></div></dialog>
+  <dialog id="provider-dialog" class="app-dialog provider-dialog" aria-labelledby="provider-dialog-title">
+    <div class="provider-picker">
+      <div class="dialog-heading"><div><p class="eyebrow">ADD MAILBOX</p><h2 id="provider-dialog-title">連結信箱</h2></div><button class="dialog-x" id="provider-dialog-close" type="button" aria-label="關閉連結信箱視窗">×</button></div>
+      <button id="provider-gmail" class="provider-choice" type="button"><span>Gmail</span><b>連結</b></button>
+      <button id="provider-yahoo" class="provider-choice" type="button"><span>Yahoo</span><b>連結</b></button>
+    </div>
+  </dialog>
   <dialog id="compose-dialog" class="app-dialog compose-dialog" aria-labelledby="compose-title">
     <form id="compose-form" class="form-card compose-modal-form">
       <div class="dialog-heading"><div><p class="eyebrow">NEW MESSAGE</p><h2 id="compose-title">撰寫郵件</h2></div><button class="dialog-x" id="compose-close" type="button" aria-label="關閉寫信視窗">×</button></div>

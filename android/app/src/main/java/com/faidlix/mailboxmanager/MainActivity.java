@@ -53,7 +53,7 @@ public class MainActivity extends BridgeActivity {
     private static final String LOCAL_HOST = "localhost";
     private static final String CLOUD_HOST = "mailbox-manager-oauth.fantasy02dreamer08.chatgpt.site";
     private static final String CLOUD_ORIGIN = "https://" + CLOUD_HOST;
-    private static final String OAUTH_START_URL = CLOUD_ORIGIN + "/api/oauth/google/start?client=android";
+    private static final String OAUTH_START_URL_TEMPLATE = CLOUD_ORIGIN + "/api/oauth/%s/start?client=android";
     private static final String OAUTH_COMPLETE_URL = CLOUD_ORIGIN + "/api/oauth/google/native/complete";
     private static final String LOCAL_INBOX_URL = "https://" + LOCAL_HOST + "/#inbox";
     private static final String APP_PREFERENCES = "mailbox_manager";
@@ -106,7 +106,7 @@ public class MainActivity extends BridgeActivity {
             }
             MailBoxAndroid.shareFiles('%s', String(title || ''), JSON.stringify(payload));
           };
-          window.mailBoxNativeOAuth = () => MailBoxAndroid.startGoogleOAuth('%s');
+          window.mailBoxNativeOAuth = (provider = 'google') => MailBoxAndroid.startOAuth(String(provider), '%s');
         })();
         """;
 
@@ -191,12 +191,12 @@ public class MainActivity extends BridgeActivity {
         intent.setData(null);
         String error = callback.getQueryParameter("error");
         if (error != null && !error.isBlank()) {
-            Toast.makeText(this, "Google 登入未完成", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "信箱登入未完成", Toast.LENGTH_LONG).show();
             return true;
         }
         String code = callback.getQueryParameter("code");
         if (code == null || !OAUTH_CODE_PATTERN.matcher(code).matches()) {
-            Toast.makeText(this, "Google 登入回傳資料無效", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "信箱登入回傳資料無效", Toast.LENGTH_LONG).show();
             return true;
         }
         completeNativeOAuth(code, webView);
@@ -225,18 +225,18 @@ public class MainActivity extends BridgeActivity {
                 }
                 CookieManager.getInstance().setCookie(CLOUD_ORIGIN, sessionCookie, accepted -> {
                     if (!accepted) {
-                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "無法儲存 Google 登入狀態", Toast.LENGTH_LONG).show());
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "無法儲存信箱登入狀態", Toast.LENGTH_LONG).show());
                         return;
                     }
                     CookieManager.getInstance().flush();
                     getSharedPreferences(APP_PREFERENCES, MODE_PRIVATE).edit().putBoolean(CLOUD_SESSION_ENABLED, true).apply();
                     runOnUiThread(() -> {
                         webView.loadUrl(LOCAL_INBOX_URL);
-                        Toast.makeText(MainActivity.this, "Google 帳號已連結", Toast.LENGTH_LONG).show();
+                        Toast.makeText(MainActivity.this, "信箱帳號已連結，正在匯入資料夾與分類", Toast.LENGTH_LONG).show();
                     });
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Google 登入失敗：" + error.getMessage(), Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "信箱登入失敗：" + error.getMessage(), Toast.LENGTH_LONG).show());
             } finally {
                 if (connection != null) connection.disconnect();
             }
@@ -424,15 +424,17 @@ public class MainActivity extends BridgeActivity {
 
     private final class EmlDownloadBridge {
         @JavascriptInterface
-        public void startGoogleOAuth(String token) {
+        public void startOAuth(String provider, String token) {
             if (!isTrustedBridgeCall(token)) return;
+            String normalizedProvider = "yahoo".equals(provider) ? "yahoo" : "google";
             runOnUiThread(() -> {
                 try {
-                    Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(OAUTH_START_URL));
+                    String url = String.format(Locale.ROOT, OAUTH_START_URL_TEMPLATE, normalizedProvider);
+                    Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                     browser.addCategory(Intent.CATEGORY_BROWSABLE);
                     startActivity(browser);
                 } catch (Exception error) {
-                    Toast.makeText(MainActivity.this, "無法開啟 Google 登入頁面", Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, "無法開啟信箱登入頁面", Toast.LENGTH_LONG).show();
                 }
             });
         }
